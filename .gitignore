@@ -1,5 +1,11 @@
 .DS_Store
 *.log
+.env
+__pycache__/
+*.pyc
+ssh-hosts.json
+*.local.json
+mcp-config.local.json
 
 # Local eval outputs and temporary workspaces.
 *-workspace/
@@ -11,4 +17,3 @@ outputs/
 .vscode/
 *.swp
 *.swo
-

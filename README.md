@@ -9,6 +9,9 @@ Diagnose Linux production problems end to end. Use this skill for service slowne
 - `references/memory.md` covers `MemAvailable`, Page Cache, RSS/PSS, `smem`, cgroup file cache, swap, slab, OOM, and container limits.
 - `references/io*.md` covers disk latency, filesystem, NFS, cloud volumes, cgroups, dirty writeback, and tracing.
 - `references/network*.md` covers TCP queues, retransmits, DNS, HTTP, TLS, routing, MTU, CNI, conntrack, NAT, and NIC pressure.
+- `references/live-ssh-mcp.md` covers the read-only live-host MCP workflow.
+- `scripts/mcp_ssh_diagnostics.py` provides an MVP stdio MCP server for SSH diagnostic bundles.
+- `examples/ssh-hosts.example.json` shows the allowlist-style SSH host config.
 - `evals/evals.json` contains regression prompts.
 
 ## Install
@@ -68,6 +71,46 @@ An API has intermittent timeouts. sar shows TCP retransmissions increasing, and 
 - Route to the smallest reference that matches the evidence.
 - Distinguish facts from inference.
 - Treat restarts, `sysctl -w`, cache drops, firewall changes, qdisc changes, conntrack deletion, disk scheduler changes, and kernel tuning as proposed changes that need evidence and rollback.
+
+## MCP SSH Diagnostics (MVP)
+
+The repository includes an optional stdio MCP server that lets an agent run predefined read-only SSH diagnostic bundles on configured hosts. It does not expose arbitrary remote command execution and does not perform automatic fixes.
+
+Create a host allowlist:
+
+```bash
+mkdir -p ~/.config/linux-troubleshooting
+cp examples/ssh-hosts.example.json ~/.config/linux-troubleshooting/ssh-hosts.json
+```
+
+Edit `~/.config/linux-troubleshooting/ssh-hosts.json` with your host aliases, users, ports, and identity files. Then verify the bundles:
+
+```bash
+python3 scripts/mcp_ssh_diagnostics.py --list-bundles
+```
+
+Example MCP server config:
+
+```json
+{
+  "mcpServers": {
+    "linux-ssh-diagnostics": {
+      "command": "python3",
+      "args": ["/path/to/linux-troubleshooting/scripts/mcp_ssh_diagnostics.py"],
+      "env": {
+        "LINUX_TROUBLESHOOTING_SSH_CONFIG": "~/.config/linux-troubleshooting/ssh-hosts.json"
+      }
+    }
+  }
+}
+```
+
+The MVP tool surface is:
+
+- `ssh_list_hosts`: list configured host aliases and available bundles.
+- `ssh_run_bundle`: run one predefined read-only bundle on one configured host.
+
+Start with `snapshot_60s`, interpret the output, then branch to one focused bundle such as `cpu_basic`, `memory_basic`, `io_basic`, `network_basic`, `container_cgroup_basic`, or `logs_oom_io_network`.
 
 ## Recent Memory Additions
 

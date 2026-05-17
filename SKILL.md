@@ -33,6 +33,7 @@ Load only the reference that matches the evidence. If the broad branch points to
 - Container, Kubernetes, CNI, overlay, service routing: `references/network-container-k8s.md`
 - DNS, HTTP, Nginx, TLS: `references/network-http-tls-dns.md`
 - NIC drops, conntrack/NAT, throughput, DDoS, load balancing, ECMP: `references/network-nic-conntrack-performance.md`
+- Live SSH MCP investigation: `references/live-ssh-mcp.md`
 
 If multiple resources are implicated, choose the branch that can disprove the largest uncertainty first.
 
@@ -45,6 +46,22 @@ If multiple resources are implicated, choose the branch that can disprove the la
 - Distinguish facts from inference. Use phrases such as "evidence points to", "not proven yet", and "this rules out".
 - For production, call out intrusive commands: `strace -T`, `perf record`, `tcpdump -s 0`, `conntrack -L`, `blktrace`, broad `find`, full packet capture, and eBPF probes can add overhead or expose sensitive data.
 - In containers and Kubernetes, check both host-level symptoms and cgroup or pod limits before concluding the host is overloaded.
+- In live SSH MCP mode, run only configured read-only diagnostic bundles. Do not perform automatic fixes.
+
+## Live SSH MCP Mode
+
+Use `references/live-ssh-mcp.md` when the user asks to connect to a configured server or live host and SSH diagnostics MCP tools such as `ssh_list_hosts` and `ssh_run_bundle` are available.
+
+MVP flow:
+
+- Identify the target host alias. If it is not provided, list configured hosts or ask for the alias.
+- Run only the read-only `snapshot_60s` bundle first.
+- Interpret that output before collecting more data.
+- Branch to one focused bundle: `cpu_basic`, `memory_basic`, `io_basic`, `network_basic`, `container_cgroup_basic`, or `logs_oom_io_network`.
+- Stop when the leading bottleneck is clear enough to explain the evidence, missing evidence, and next validation.
+- Never restart services, kill processes, change sysctl values, drop caches, modify firewall/qdisc/conntrack state, or edit remote files from the MCP path.
+
+If the MCP tools are not available, provide the same commands for the user to run manually instead of implying direct access.
 
 ## First Response Shape
 

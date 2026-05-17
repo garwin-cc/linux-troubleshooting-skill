@@ -1,0 +1,20 @@
+{
+  "hosts": {
+    "prod-api-01": {
+      "hostname": "10.0.1.12",
+      "user": "ops",
+      "port": 22,
+      "identity_file": "~/.ssh/prod_ops_ed25519",
+      "labels": ["prod", "api"],
+      "connect_timeout": 8,
+      "command_timeout": 20,
+      "max_output_bytes": 200000
+    },
+    "staging-db-01": {
+      "hostname": "staging-db-01.internal",
+      "user": "ubuntu",
+      "identity_file": "~/.ssh/staging_ed25519",
+      "labels": ["staging", "db"]
+    }
+  }
+}
