@@ -1,20 +1,50 @@
 {
+  "audit": {
+    "enabled": true,
+    "path": "~/.config/linux-troubleshooting/audit.jsonl"
+  },
+  "redaction": {
+    "enabled": true,
+    "redact_ips": true,
+    "redact_domains": false,
+    "redact_paths": false
+  },
+  "sudo": {
+    "enabled": false,
+    "command_ids": ["kernel_recent", "oom_logs", "io_logs", "kernel_tail", "journal_kernel", "kernel_filtered"],
+    "bundles": []
+  },
   "hosts": {
     "prod-api-01": {
       "hostname": "10.0.1.12",
       "user": "ops",
       "port": 22,
       "identity_file": "~/.ssh/prod_ops_ed25519",
-      "labels": ["prod", "api"],
+      "labels": {
+        "env": "prod",
+        "role": "api",
+        "cluster": "prod-a",
+        "az": "az-a",
+        "k8s_node": true
+      },
       "connect_timeout": 8,
       "command_timeout": 20,
-      "max_output_bytes": 200000
+      "max_output_bytes": 200000,
+      "sudo": {
+        "enabled": true,
+        "command_ids": ["kernel_recent", "oom_logs", "io_logs", "kernel_tail", "journal_kernel", "kernel_filtered"]
+      }
     },
     "staging-db-01": {
       "hostname": "staging-db-01.internal",
       "user": "ubuntu",
       "identity_file": "~/.ssh/staging_ed25519",
-      "labels": ["staging", "db"]
+      "labels": {
+        "env": "staging",
+        "role": "db",
+        "cluster": "staging-a",
+        "az": "az-b"
+      }
     }
   }
 }

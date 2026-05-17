@@ -58,6 +58,9 @@ MVP flow:
 - Run only the read-only `snapshot_60s` bundle first.
 - Interpret that output before collecting more data.
 - Branch to one focused bundle: `cpu_basic`, `memory_basic`, `io_basic`, `network_basic`, `container_cgroup_basic`, or `logs_oom_io_network`.
+- Use `ssh_compare_hosts` when the question is about blast radius, one bad node versus cluster-wide symptoms, or hosts selected by labels.
+- Use `ssh_k8s_map` when a Kubernetes pod symptom needs node, pod UID, container, and cgroup correlation.
+- Treat `sudo_used` as privileged read-only evidence collection; mention it in the report and never expand it into arbitrary command execution.
 - Stop when the leading bottleneck is clear enough to explain the evidence, missing evidence, and next validation.
 - Never restart services, kill processes, change sysctl values, drop caches, modify firewall/qdisc/conntrack state, or edit remote files from the MCP path.
 

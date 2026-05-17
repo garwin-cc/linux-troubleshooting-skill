@@ -11,6 +11,7 @@ It does not provide arbitrary remote command execution.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -18,6 +19,7 @@ import shlex
 import subprocess
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -36,19 +38,21 @@ def cmd(
     command: str,
     fallbacks: list[str] | None = None,
     allowed_exit_codes: list[int] | None = None,
+    sudo_allowed: bool = False,
 ) -> CommandSpec:
     return {
         "id": command_id,
         "command": command,
         "fallbacks": fallbacks or [],
         "allowed_exit_codes": allowed_exit_codes or [0],
+        "sudo_allowed": sudo_allowed,
     }
 
 
 BUNDLES: dict[str, list[CommandSpec]] = {
     "snapshot_60s": [
         cmd("identity_uptime", "date; hostname; uptime"),
-        cmd("kernel_recent", "dmesg -T | tail -80", ["journalctl -k --no-pager -n 80 2>/dev/null || true"]),
+        cmd("kernel_recent", "dmesg -T | tail -80", ["journalctl -k --no-pager -n 80 2>/dev/null || true"], sudo_allowed=True),
         cmd("vmstat", "vmstat 1 5", ["cat /proc/loadavg; head -5 /proc/stat; grep -E 'pgscan|pgsteal|pswp|pgmajfault' /proc/vmstat"]),
         cmd("mpstat", "mpstat -P ALL 1 3", ["grep '^cpu' /proc/stat | head -40"]),
         cmd(
@@ -93,6 +97,7 @@ BUNDLES: dict[str, list[CommandSpec]] = {
             "dmesg -T | grep -Ei 'oom|out of memory|killed process' | tail -80",
             ["journalctl -k --no-pager -n 200 2>/dev/null | grep -Ei 'oom|out of memory|killed process' | tail -80 || true"],
             allowed_exit_codes=[0, 1],
+            sudo_allowed=True,
         ),
         cmd("memory_psi", "cat /proc/pressure/memory 2>/dev/null || true"),
     ],
@@ -114,6 +119,7 @@ BUNDLES: dict[str, list[CommandSpec]] = {
             "dmesg -T | grep -iE 'error|fail|reset|timeout|nvme|scsi|blk|I/O' | tail -100",
             ["journalctl -k --no-pager -n 200 2>/dev/null | grep -iE 'error|fail|reset|timeout|nvme|scsi|blk|I/O' | tail -100 || true"],
             allowed_exit_codes=[0, 1],
+            sudo_allowed=True,
         ),
     ],
     "network_basic": [
@@ -128,27 +134,35 @@ BUNDLES: dict[str, list[CommandSpec]] = {
     ],
     "container_cgroup_basic": [
         cmd("self_cgroup", "cat /proc/self/cgroup"),
-        cmd("memory_current_v2", "cat /sys/fs/cgroup/memory.current 2>/dev/null || true"),
-        cmd("memory_max_v2", "cat /sys/fs/cgroup/memory.max 2>/dev/null || true"),
-        cmd("memory_stat_v2", "cat /sys/fs/cgroup/memory.stat 2>/dev/null || true"),
-        cmd("memory_events_v2", "cat /sys/fs/cgroup/memory.events 2>/dev/null || true"),
-        cmd("cpu_stat_v2", "cat /sys/fs/cgroup/cpu.stat 2>/dev/null || true"),
-        cmd("cpu_max_v2", "cat /sys/fs/cgroup/cpu.max 2>/dev/null || true"),
-        cmd("io_stat_v2", "cat /sys/fs/cgroup/io.stat 2>/dev/null || true"),
-        cmd("memory_usage_v1", "cat /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null || true"),
-        cmd("memory_limit_v1", "cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || true"),
-        cmd("memory_stat_v1", "cat /sys/fs/cgroup/memory/memory.stat 2>/dev/null || true"),
-        cmd("memory_failcnt_v1", "cat /sys/fs/cgroup/memory/memory.failcnt 2>/dev/null || true"),
+        cmd("memory_current_v2", "cat /sys/fs/cgroup/memory.current 2>/dev/null || true", sudo_allowed=True),
+        cmd("memory_max_v2", "cat /sys/fs/cgroup/memory.max 2>/dev/null || true", sudo_allowed=True),
+        cmd("memory_stat_v2", "cat /sys/fs/cgroup/memory.stat 2>/dev/null || true", sudo_allowed=True),
+        cmd("memory_events_v2", "cat /sys/fs/cgroup/memory.events 2>/dev/null || true", sudo_allowed=True),
+        cmd("cpu_stat_v2", "cat /sys/fs/cgroup/cpu.stat 2>/dev/null || true", sudo_allowed=True),
+        cmd("cpu_max_v2", "cat /sys/fs/cgroup/cpu.max 2>/dev/null || true", sudo_allowed=True),
+        cmd("io_stat_v2", "cat /sys/fs/cgroup/io.stat 2>/dev/null || true", sudo_allowed=True),
+        cmd("memory_usage_v1", "cat /sys/fs/cgroup/memory/memory.usage_in_bytes 2>/dev/null || true", sudo_allowed=True),
+        cmd("memory_limit_v1", "cat /sys/fs/cgroup/memory/memory.limit_in_bytes 2>/dev/null || true", sudo_allowed=True),
+        cmd("memory_stat_v1", "cat /sys/fs/cgroup/memory/memory.stat 2>/dev/null || true", sudo_allowed=True),
+        cmd("memory_failcnt_v1", "cat /sys/fs/cgroup/memory/memory.failcnt 2>/dev/null || true", sudo_allowed=True),
     ],
     "logs_oom_io_network": [
-        cmd("kernel_tail", "dmesg -T | tail -160", ["journalctl -k --no-pager -n 160 2>/dev/null || true"]),
-        cmd("journal_kernel", "journalctl -k --no-pager -n 200 2>/dev/null || true"),
+        cmd("kernel_tail", "dmesg -T | tail -160", ["journalctl -k --no-pager -n 160 2>/dev/null || true"], sudo_allowed=True),
+        cmd("journal_kernel", "journalctl -k --no-pager -n 200 2>/dev/null || true", sudo_allowed=True),
         cmd(
             "kernel_filtered",
             "dmesg -T | grep -Ei 'oom|out of memory|killed process|blocked for more than|I/O error|reset|timeout|link is down|link is up|nf_conntrack|martian|segfault' | tail -160",
             ["journalctl -k --no-pager -n 300 2>/dev/null | grep -Ei 'oom|out of memory|killed process|blocked for more than|I/O error|reset|timeout|link is down|link is up|nf_conntrack|martian|segfault' | tail -160 || true"],
             allowed_exit_codes=[0, 1],
+            sudo_allowed=True,
         ),
+    ],
+    "k8s_node_pod_cgroup": [
+        cmd("k8s_identity", "hostname; cat /proc/self/cgroup"),
+        cmd("kubelet_pods", "find /var/lib/kubelet/pods -maxdepth 2 -type d 2>/dev/null | head -120", sudo_allowed=True),
+        cmd("crictl_ps", "crictl ps -a 2>/dev/null | head -80", ["ctr -n k8s.io containers list 2>/dev/null | head -80 || true"], sudo_allowed=True),
+        cmd("cgroup_pods_v2", "find /sys/fs/cgroup -maxdepth 5 -type d -name '*pod*' 2>/dev/null | head -120", sudo_allowed=True),
+        cmd("kubelet_logs", "journalctl -u kubelet --no-pager -n 120 2>/dev/null || true", sudo_allowed=True),
     ],
 }
 
@@ -164,6 +178,28 @@ def load_config(path: str) -> dict[str, Any]:
     return data
 
 
+def as_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    return [str(value)]
+
+
+def merged_labels(entry: dict[str, Any]) -> dict[str, Any]:
+    labels = entry.get("labels", [])
+    if isinstance(labels, dict):
+        return {str(k): v for k, v in labels.items()}
+    return {str(label): True for label in as_list(labels)}
+
+
+def label_list(entry: dict[str, Any]) -> list[str]:
+    labels = entry.get("labels", [])
+    if isinstance(labels, dict):
+        return [f"{key}={value}" for key, value in sorted(labels.items())]
+    return as_list(labels)
+
+
 def host_entry(config: dict[str, Any], host: str) -> dict[str, Any]:
     hosts = config.get("hosts", {})
     if host not in hosts:
@@ -172,6 +208,121 @@ def host_entry(config: dict[str, Any], host: str) -> dict[str, Any]:
     if not isinstance(entry, dict):
         raise ValueError(f"host entry must be an object: {host}")
     return entry
+
+
+def host_matches_labels(entry: dict[str, Any], labels: list[str]) -> bool:
+    if not labels:
+        return True
+    host_labels = merged_labels(entry)
+    for label in labels:
+        if "=" in label:
+            key, expected = label.split("=", 1)
+            if str(host_labels.get(key)) != expected:
+                return False
+        elif label not in host_labels:
+            return False
+    return True
+
+
+def sudo_config(config: dict[str, Any], entry: dict[str, Any]) -> dict[str, Any]:
+    global_cfg = config.get("sudo", {}) if isinstance(config.get("sudo", {}), dict) else {}
+    host_cfg = entry.get("sudo", {}) if isinstance(entry.get("sudo", {}), dict) else {}
+    return {
+        "enabled": bool(host_cfg.get("enabled", global_cfg.get("enabled", False))),
+        "command_ids": set(as_list(global_cfg.get("command_ids")) + as_list(host_cfg.get("command_ids"))),
+        "bundles": set(as_list(global_cfg.get("bundles")) + as_list(host_cfg.get("bundles"))),
+    }
+
+
+def sudo_allowed(config: dict[str, Any], entry: dict[str, Any], bundle: str, command_id: str, spec: CommandSpec) -> bool:
+    if not spec.get("sudo_allowed"):
+        return False
+    cfg = sudo_config(config, entry)
+    if not cfg["enabled"]:
+        return False
+    return command_id in cfg["command_ids"] or bundle in cfg["bundles"]
+
+
+def audit_config(config: dict[str, Any]) -> dict[str, Any]:
+    cfg = config.get("audit", {}) if isinstance(config.get("audit", {}), dict) else {}
+    return {
+        "enabled": bool(cfg.get("enabled", False)),
+        "path": os.path.expanduser(str(cfg.get("path", "~/.config/linux-troubleshooting/audit.jsonl"))),
+    }
+
+
+def redaction_config(config: dict[str, Any], entry: dict[str, Any] | None = None) -> dict[str, Any]:
+    global_cfg = config.get("redaction", {}) if isinstance(config.get("redaction", {}), dict) else {}
+    host_cfg = entry.get("redaction", {}) if entry and isinstance(entry.get("redaction", {}), dict) else {}
+    enabled = host_cfg.get("enabled", global_cfg.get("enabled", True))
+    return {
+        "enabled": bool(enabled),
+        "redact_ips": bool(host_cfg.get("redact_ips", global_cfg.get("redact_ips", True))),
+        "redact_domains": bool(host_cfg.get("redact_domains", global_cfg.get("redact_domains", False))),
+        "redact_paths": bool(host_cfg.get("redact_paths", global_cfg.get("redact_paths", False))),
+    }
+
+
+class Redactor:
+    def __init__(self, cfg: dict[str, Any]):
+        self.cfg = cfg
+        self.values: dict[str, str] = {}
+        self.counts: dict[str, int] = {}
+
+    def token(self, kind: str, value: str) -> str:
+        key = f"{kind}:{value}"
+        if key not in self.values:
+            self.counts[kind] = self.counts.get(kind, 0) + 1
+            self.values[key] = f"<redacted:{kind}:{self.counts[kind]}>"
+        return self.values[key]
+
+    def text(self, value: Any) -> Any:
+        if not self.cfg.get("enabled") or not isinstance(value, str) or not value:
+            return value
+        text = value
+        text = re.sub(
+            r"(?i)(authorization:\s*(?:bearer|basic)\s+)[^\s]+",
+            lambda m: m.group(1) + "<redacted:secret>",
+            text,
+        )
+        text = re.sub(
+            r"(?i)\b(password|passwd|token|secret|api[_-]?key|access[_-]?key|private[_-]?key)=([^\s;&]+)",
+            lambda m: f"{m.group(1)}=<redacted:secret>",
+            text,
+        )
+        text = re.sub(
+            r"(?i)\b([A-Za-z_][A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|KEY))=([^\s;&]+)",
+            lambda m: f"{m.group(1)}=<redacted:secret>",
+            text,
+        )
+        if self.cfg.get("redact_ips"):
+            text = re.sub(
+                r"\b(?:\d{1,3}\.){3}\d{1,3}\b",
+                lambda m: self.token("ip", m.group(0)),
+                text,
+            )
+        if self.cfg.get("redact_domains"):
+            text = re.sub(
+                r"\b(?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,}\b",
+                lambda m: self.token("domain", m.group(0)),
+                text,
+            )
+        if self.cfg.get("redact_paths"):
+            text = re.sub(
+                r"(?<![\w.-])/(?:[A-Za-z0-9._@+-]+/)+[A-Za-z0-9._@+-]*",
+                lambda m: self.token("path", m.group(0)),
+                text,
+            )
+        return text
+
+    def object(self, value: Any) -> Any:
+        if isinstance(value, str):
+            return self.text(value)
+        if isinstance(value, list):
+            return [self.object(item) for item in value]
+        if isinstance(value, dict):
+            return {key: self.object(item) for key, item in value.items()}
+        return value
 
 
 def ssh_target(name: str, entry: dict[str, Any]) -> str:
@@ -221,9 +372,13 @@ def normalize_process_output(value: Any) -> str:
     return value or ""
 
 
-def run_remote(name: str, entry: dict[str, Any], command: str, timeout: int) -> dict[str, Any]:
+def sudo_wrap(command: str) -> str:
+    return "sudo -n sh -lc " + shlex.quote("export LC_ALL=C; " + command)
+
+
+def run_remote(name: str, entry: dict[str, Any], command: str, timeout: int, use_sudo: bool = False) -> dict[str, Any]:
     started = time.time()
-    remote = "export LC_ALL=C; " + command
+    remote = "export LC_ALL=C; " + (sudo_wrap(command) if use_sudo else command)
     proc_args = ssh_args(name, entry) + [remote]
     try:
         proc = subprocess.run(
@@ -256,6 +411,7 @@ def run_remote(name: str, entry: dict[str, Any], command: str, timeout: int) -> 
     return {
         "command": command,
         "argv_preview": " ".join(shlex.quote(x) for x in proc_args[:-1]) + " <remote-command>",
+        "sudo": use_sudo,
         "exit_code": exit_code,
         "stdout": stdout,
         "stderr": stderr,
@@ -269,7 +425,14 @@ def run_remote(name: str, entry: dict[str, Any], command: str, timeout: int) -> 
     }
 
 
-def run_command_spec(name: str, entry: dict[str, Any], spec: CommandSpec, timeout: int) -> dict[str, Any]:
+def run_command_spec(
+    config: dict[str, Any],
+    name: str,
+    entry: dict[str, Any],
+    bundle: str,
+    spec: CommandSpec,
+    timeout: int,
+) -> dict[str, Any]:
     attempts = []
     allowed_exit_codes = spec.get("allowed_exit_codes", [0])
     primary = run_remote(name, entry, str(spec["command"]), timeout)
@@ -279,8 +442,39 @@ def run_command_spec(name: str, entry: dict[str, Any], spec: CommandSpec, timeou
     selected = primary
     fallback_used = False
     fallback_reason = None
+    sudo_used = False
+    can_sudo = sudo_allowed(config, entry, bundle, str(spec["id"]), spec)
     if is_fallback_worthy(primary):
         fallback_reason = "primary command timed out, failed, or was unavailable"
+        if can_sudo and ("permission denied" in (primary.get("stderr", "") + primary.get("stdout", "")).lower() or primary["exit_code"] in {126, 127}):
+            sudo_attempt = run_remote(name, entry, str(spec["command"]), timeout, use_sudo=True)
+            sudo_attempt["attempt"] = "sudo-primary"
+            attempts.append(sudo_attempt)
+            selected = sudo_attempt
+            sudo_used = True
+            if not is_fallback_worthy(sudo_attempt):
+                return {
+                    "id": spec["id"],
+                    "command": selected["command"],
+                    "primary_command": spec["command"],
+                    "fallback_used": fallback_used,
+                    "fallback_reason": fallback_reason,
+                    "sudo_allowed": can_sudo,
+                    "sudo_used": sudo_used,
+                    "allowed_exit_codes": allowed_exit_codes,
+                    "exit_ok": selected["exit_code"] in allowed_exit_codes,
+                    "attempts": attempts,
+                    "exit_code": selected["exit_code"],
+                    "stdout": selected["stdout"],
+                    "stderr": selected["stderr"],
+                    "timed_out": selected["timed_out"],
+                    "duration_ms": selected["duration_ms"],
+                    "stdout_truncated": selected["stdout_truncated"],
+                    "stderr_truncated": selected["stderr_truncated"],
+                    "stdout_bytes": selected["stdout_bytes"],
+                    "stderr_bytes": selected["stderr_bytes"],
+                    "max_output_bytes": selected["max_output_bytes"],
+                }
         for fallback_command in spec.get("fallbacks", []):
             fallback = run_remote(name, entry, str(fallback_command), timeout)
             fallback["attempt"] = "fallback"
@@ -289,6 +483,14 @@ def run_command_spec(name: str, entry: dict[str, Any], spec: CommandSpec, timeou
             fallback_used = True
             if not is_fallback_worthy(fallback):
                 break
+            if can_sudo:
+                sudo_fallback = run_remote(name, entry, str(fallback_command), timeout, use_sudo=True)
+                sudo_fallback["attempt"] = "sudo-fallback"
+                attempts.append(sudo_fallback)
+                selected = sudo_fallback
+                sudo_used = True
+                if not is_fallback_worthy(sudo_fallback):
+                    break
 
     return {
         "id": spec["id"],
@@ -296,6 +498,8 @@ def run_command_spec(name: str, entry: dict[str, Any], spec: CommandSpec, timeou
         "primary_command": spec["command"],
         "fallback_used": fallback_used,
         "fallback_reason": fallback_reason,
+        "sudo_allowed": can_sudo,
+        "sudo_used": sudo_used,
         "allowed_exit_codes": allowed_exit_codes,
         "exit_ok": selected["exit_code"] in allowed_exit_codes,
         "attempts": attempts,
@@ -321,10 +525,24 @@ def list_hosts(config: dict[str, Any]) -> dict[str, Any]:
                 "hostname": entry.get("hostname", name),
                 "user": entry.get("user"),
                 "port": entry.get("port", 22),
-                "labels": entry.get("labels", []),
+                "labels": label_list(entry),
+                "label_map": merged_labels(entry),
             }
         )
     return {"hosts": result, "bundles": sorted(BUNDLES)}
+
+
+def select_hosts(config: dict[str, Any], hosts: list[str] | None = None, labels: list[str] | None = None) -> list[str]:
+    configured = config.get("hosts", {})
+    selected = []
+    if hosts:
+        for host in hosts:
+            host_entry(config, host)
+            selected.append(host)
+    else:
+        selected = sorted(configured)
+    labels = labels or []
+    return [host for host in selected if host_matches_labels(configured[host], labels)]
 
 
 def command_by_id(commands: list[dict[str, Any]], command_id: str) -> dict[str, Any] | None:
@@ -488,6 +706,7 @@ def build_command_health(commands: list[dict[str, Any]]) -> dict[str, Any]:
         if any(attempt.get("stdout_truncated") or attempt.get("stderr_truncated") for attempt in attempts):
             truncated.append(command["id"])
     fallback_used = [cmd["id"] for cmd in commands if cmd.get("fallback_used")]
+    sudo_used = [cmd["id"] for cmd in commands if cmd.get("sudo_used")]
     return {
         "total": len(commands),
         "failed": failed,
@@ -495,6 +714,7 @@ def build_command_health(commands: list[dict[str, Any]]) -> dict[str, Any]:
         "timed_out": timed_out,
         "truncated": truncated,
         "fallback_used": fallback_used,
+        "sudo_used": sudo_used,
         "healthy": not failed and not timed_out and not truncated,
     }
 
@@ -583,6 +803,8 @@ def build_diagnostic_report(bundle: str, commands: list[dict[str, Any]]) -> dict
         add_signal(signals, "warning", "collection", f"truncated: {', '.join(health['truncated'])}", "Some output was capped by max_output_bytes; rerun focused bundles or increase the cap if needed.")
     if health["fallback_used"]:
         add_signal(signals, "info", "collection", f"fallback used: {', '.join(health['fallback_used'])}", "Primary tools were missing, denied, or timed out; fallback evidence was collected automatically.")
+    if health["sudo_used"]:
+        add_signal(signals, "info", "collection", f"sudo used: {', '.join(health['sudo_used'])}", "Configured non-interactive sudo was used for read-only evidence collection.")
 
     analyzers = {
         "snapshot_60s": [analyze_cpu, analyze_memory, analyze_io, analyze_network],
@@ -623,20 +845,189 @@ def build_diagnostic_report(bundle: str, commands: list[dict[str, Any]]) -> dict
         "safety": {
             "automatic_fixes_run": False,
             "remote_commands_are_predefined": True,
+            "sudo_is_config_gated": True,
         },
     }
+
+
+def summarize_for_compare(result: dict[str, Any]) -> dict[str, Any]:
+    report = result["diagnostic_report"]
+    categories: dict[str, int] = {}
+    severities: dict[str, int] = {}
+    for signal in report.get("signals", []):
+        categories[signal["category"]] = categories.get(signal["category"], 0) + 1
+        severities[signal["severity"]] = severities.get(signal["severity"], 0) + 1
+    return {
+        "host": result["host"],
+        "labels": result.get("host_metadata", {}).get("labels", []),
+        "summary": report.get("summary"),
+        "confidence": report.get("confidence"),
+        "signal_categories": categories,
+        "signal_severities": severities,
+        "next_read_only_bundles": report.get("next_read_only_bundles", []),
+        "command_health": report.get("command_health", {}),
+    }
+
+
+def compare_hosts(
+    config: dict[str, Any],
+    bundle: str,
+    hosts: list[str] | None = None,
+    labels: list[str] | None = None,
+    timeout: int | None = None,
+    max_hosts: int = 10,
+) -> dict[str, Any]:
+    selected_hosts = select_hosts(config, hosts=hosts, labels=labels)
+    if len(selected_hosts) > max_hosts:
+        selected_hosts = selected_hosts[:max_hosts]
+    run_id = str(uuid.uuid4())
+    results = [run_bundle(config, host, bundle, timeout=timeout) for host in selected_hosts]
+    summaries = [summarize_for_compare(result) for result in results]
+    category_counts: dict[str, int] = {}
+    unhealthy_hosts = []
+    for summary in summaries:
+        if not summary.get("command_health", {}).get("healthy", False):
+            unhealthy_hosts.append(summary["host"])
+        for category, count in summary.get("signal_categories", {}).items():
+            category_counts[category] = category_counts.get(category, 0) + count
+    comparison = {
+        "run_id": run_id,
+        "bundle": bundle,
+        "selected_hosts": selected_hosts,
+        "labels_filter": labels or [],
+        "summary": "Compared read-only diagnostic bundle results across hosts.",
+        "dominant_signal_categories": sorted(category_counts.items(), key=lambda item: item[1], reverse=True),
+        "unhealthy_collection_hosts": unhealthy_hosts,
+        "host_summaries": summaries,
+        "results": results,
+    }
+    audit_record(
+        config,
+        {
+            "event": "ssh_compare_hosts",
+            "run_id": run_id,
+            "bundle": bundle,
+            "selected_hosts": selected_hosts,
+            "labels_filter": labels or [],
+            "dominant_signal_categories": comparison["dominant_signal_categories"],
+            "unhealthy_collection_hosts": unhealthy_hosts,
+        },
+    )
+    return comparison
+
+
+def parse_k8s_mapping(result: dict[str, Any], pod_name: str | None = None, pod_uid: str | None = None) -> dict[str, Any]:
+    commands = result.get("commands", [])
+    combined = "\n".join(command.get("stdout", "") for command in commands)
+    candidates = []
+    search_terms = [term for term in [pod_uid, pod_name] if term]
+    for line in combined.splitlines():
+        if not search_terms or any(term in line for term in search_terms):
+            if "pod" in line.lower() or "/sys/fs/cgroup" in line or "/var/lib/kubelet/pods" in line:
+                candidates.append(line[:500])
+    cgroup_paths = sorted(set(re.findall(r"(/sys/fs/cgroup/[^\s]+pod[^\s]+)", combined)))[:20]
+    kubelet_pod_dirs = sorted(set(re.findall(r"(/var/lib/kubelet/pods/[0-9a-fA-F-]+)", combined)))[:20]
+    return {
+        "node_host": result["host"],
+        "pod_name_filter": pod_name,
+        "pod_uid_filter": pod_uid,
+        "candidate_lines": candidates[:40],
+        "cgroup_paths": cgroup_paths,
+        "kubelet_pod_dirs": kubelet_pod_dirs,
+        "explanation": [
+            "Use pod UID matches to connect Kubernetes API objects to /var/lib/kubelet/pods and cgroup paths.",
+            "If no candidate appears, collect Kubernetes API pod metadata first, especially nodeName, pod UID, namespace, and container IDs.",
+            "Compare cgroup CPU/memory/io evidence against node-level pressure before blaming the pod process.",
+        ],
+    }
+
+
+def map_k8s_cgroup(
+    config: dict[str, Any],
+    host: str,
+    pod_name: str | None = None,
+    pod_uid: str | None = None,
+    namespace: str | None = None,
+    timeout: int | None = None,
+) -> dict[str, Any]:
+    result = run_bundle(config, host, "k8s_node_pod_cgroup", timeout=timeout)
+    mapping = parse_k8s_mapping(result, pod_name=pod_name, pod_uid=pod_uid)
+    mapping["namespace_filter"] = namespace
+    output = {
+        "host": host,
+        "bundle_result": result,
+        "mapping": mapping,
+        "safety": {
+            "automatic_fixes_run": False,
+            "remote_commands_are_predefined": True,
+        },
+    }
+    audit_record(
+        config,
+        {
+            "event": "ssh_k8s_map",
+            "run_id": result.get("run_id"),
+            "host": host,
+            "pod_name_filter_hash": hashlib.sha256((pod_name or "").encode("utf-8")).hexdigest() if pod_name else None,
+            "pod_uid_filter_hash": hashlib.sha256((pod_uid or "").encode("utf-8")).hexdigest() if pod_uid else None,
+            "namespace_filter_hash": hashlib.sha256((namespace or "").encode("utf-8")).hexdigest() if namespace else None,
+        },
+    )
+    return apply_redaction(config, host_entry(config, host), output)
+
+
+def audit_record(config: dict[str, Any], record: dict[str, Any]) -> None:
+    cfg = audit_config(config)
+    if not cfg["enabled"]:
+        return
+    path = Path(cfg["path"])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False, sort_keys=True) + "\n")
+
+
+def command_audit_summary(commands: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    summaries = []
+    for command in commands:
+        summaries.append(
+            {
+                "id": command["id"],
+                "command_hash": hashlib.sha256(command["command"].encode("utf-8")).hexdigest(),
+                "exit_code": command["exit_code"],
+                "exit_ok": command.get("exit_ok"),
+                "fallback_used": command.get("fallback_used", False),
+                "sudo_used": command.get("sudo_used", False),
+                "timed_out": command.get("timed_out", False),
+                "stdout_bytes": command.get("stdout_bytes", 0),
+                "stderr_bytes": command.get("stderr_bytes", 0),
+                "stdout_truncated": command.get("stdout_truncated", False),
+                "stderr_truncated": command.get("stderr_truncated", False),
+            }
+        )
+    return summaries
+
+
+def apply_redaction(config: dict[str, Any], entry: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
+    return Redactor(redaction_config(config, entry)).object(result)
 
 
 def run_bundle(config: dict[str, Any], host: str, bundle: str, timeout: int | None = None) -> dict[str, Any]:
     if bundle not in BUNDLES:
         raise ValueError(f"unknown bundle: {bundle}")
     entry = host_entry(config, host)
+    run_id = str(uuid.uuid4())
     per_command_timeout = int(timeout or entry.get("command_timeout", 20))
     started = time.time()
-    commands = [run_command_spec(host, entry, spec, per_command_timeout) for spec in BUNDLES[bundle]]
+    commands = [run_command_spec(config, host, entry, bundle, spec, per_command_timeout) for spec in BUNDLES[bundle]]
     report = build_diagnostic_report(bundle, commands)
-    return {
+    result = {
+        "run_id": run_id,
         "host": host,
+        "host_metadata": {
+            "hostname": entry.get("hostname", host),
+            "labels": label_list(entry),
+            "label_map": merged_labels(entry),
+        },
         "bundle": bundle,
         "started_at_unix": int(started),
         "duration_ms": int((time.time() - started) * 1000),
@@ -644,6 +1035,22 @@ def run_bundle(config: dict[str, Any], host: str, bundle: str, timeout: int | No
         "diagnostic_report": report,
         "commands": commands,
     }
+    audit_record(
+        config,
+        {
+            "event": "ssh_run_bundle",
+            "run_id": run_id,
+            "host": host,
+            "hostname": entry.get("hostname", host),
+            "labels": label_list(entry),
+            "bundle": bundle,
+            "started_at_unix": result["started_at_unix"],
+            "duration_ms": result["duration_ms"],
+            "command_health": report["command_health"],
+            "commands": command_audit_summary(commands),
+        },
+    )
+    return apply_redaction(config, entry, result)
 
 
 def content_text(value: Any) -> dict[str, Any]:
@@ -676,6 +1083,46 @@ def tool_schema() -> list[dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "ssh_compare_hosts",
+            "description": "Run one predefined read-only diagnostic bundle across multiple configured hosts and compare structured signals.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "bundle": {"type": "string", "enum": sorted(BUNDLES)},
+                    "hosts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional configured host aliases. If omitted, hosts are selected by labels or all hosts.",
+                    },
+                    "labels": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional labels such as prod, api, role=api, or az=sh-a.",
+                    },
+                    "timeout": {"type": "integer", "minimum": 1, "maximum": 120},
+                    "max_hosts": {"type": "integer", "minimum": 1, "maximum": 50},
+                },
+                "required": ["bundle"],
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "ssh_k8s_map",
+            "description": "Collect read-only Kubernetes node/pod/cgroup mapping evidence from one configured node host.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "host": {"type": "string", "description": "Configured Kubernetes node host alias."},
+                    "pod_name": {"type": "string"},
+                    "pod_uid": {"type": "string"},
+                    "namespace": {"type": "string"},
+                    "timeout": {"type": "integer", "minimum": 1, "maximum": 120},
+                },
+                "required": ["host"],
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
@@ -702,13 +1149,35 @@ class McpServer:
                 name = params.get("name")
                 args = params.get("arguments") or {}
                 if name == "ssh_list_hosts":
-                    result = content_text(list_hosts(self.config))
+                    result = content_text(Redactor(redaction_config(self.config)).object(list_hosts(self.config)))
                 elif name == "ssh_run_bundle":
                     result = content_text(
                         run_bundle(
                             self.config,
                             host=str(args["host"]),
                             bundle=str(args["bundle"]),
+                            timeout=args.get("timeout"),
+                        )
+                    )
+                elif name == "ssh_compare_hosts":
+                    result = content_text(
+                        compare_hosts(
+                            self.config,
+                            bundle=str(args["bundle"]),
+                            hosts=as_list(args.get("hosts")) if args.get("hosts") else None,
+                            labels=as_list(args.get("labels")) if args.get("labels") else None,
+                            timeout=args.get("timeout"),
+                            max_hosts=int(args.get("max_hosts", 10)),
+                        )
+                    )
+                elif name == "ssh_k8s_map":
+                    result = content_text(
+                        map_k8s_cgroup(
+                            self.config,
+                            host=str(args["host"]),
+                            pod_name=args.get("pod_name"),
+                            pod_uid=args.get("pod_uid"),
+                            namespace=args.get("namespace"),
                             timeout=args.get("timeout"),
                         )
                     )

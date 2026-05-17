@@ -26,6 +26,8 @@ Expected tools:
 
 - `ssh_list_hosts`: list allowed host aliases and available bundles.
 - `ssh_run_bundle`: run one read-only bundle on one allowed host.
+- `ssh_compare_hosts`: compare one read-only bundle across selected hosts or labels.
+- `ssh_k8s_map`: collect Kubernetes node/pod/cgroup mapping evidence from one configured node.
 
 Each `ssh_run_bundle` result should include:
 
@@ -34,6 +36,7 @@ Each `ssh_run_bundle` result should include:
 - `diagnostic_report.next_read_only_bundles`: suggested next bundles, not fixes.
 - `diagnostic_report.command_health`: failed, timed-out, truncated, and fallback-used command IDs.
 - `commands[].attempts`: primary and fallback command attempts for auditability.
+- `commands[].sudo_used`: true only when config-gated `sudo -n` was used for a read-only command.
 
 Expected bundles:
 
@@ -43,7 +46,16 @@ Expected bundles:
 - `io_basic`: iowait, block latency, filesystem, and kernel IO logs.
 - `network_basic`: sockets, packet counters, TCP counters, softnet, and interface stats.
 - `container_cgroup_basic`: cgroup CPU, memory, and IO files.
+- `k8s_node_pod_cgroup`: Kubernetes node-side pod directory, runtime, kubelet log, and cgroup mapping evidence.
 - `logs_oom_io_network`: kernel logs for OOM, blocked tasks, IO, network, and conntrack signals.
+
+## Production Controls
+
+- `sudo` is deny-by-default and must be enabled in config. Use it only for read-only command IDs such as kernel logs and cgroup reads.
+- Audit logs should contain command IDs, hashes, duration, exit state, fallback, sudo, timeout, and truncation metadata. Do not store raw stdout/stderr by default.
+- Redaction should stay enabled for production. Preserve repeated-value identity with stable placeholders so comparisons still work.
+- Prefer labels such as `env=prod`, `role=api`, `cluster=prod-a`, and `az=az-a` for multi-host comparison.
+- For Kubernetes symptoms, map pod -> node -> pod UID -> cgroup path before concluding whether pressure is process-local, cgroup-limited, or node-level.
 
 ## Workflow
 

@@ -81,6 +81,11 @@ The diagnostics path includes:
 - automatic fallback commands for common missing tools such as `mpstat`, `pidstat`, `iostat`, `sar`, `ss`, `nstat`, `ip`, and restricted `dmesg`
 - a structured `diagnostic_report` with summary, confidence, extracted signals, next read-only bundle suggestions, command health, and safety metadata
 - per-command timeout and output truncation fields so incomplete evidence is visible instead of hidden
+- optional config-gated `sudo -n` for selected read-only command IDs only
+- JSONL audit records with command metadata and hashes instead of raw command output
+- per-host labels for filtering, comparison, and production context
+- response redaction for secrets and sensitive host details
+- multi-host bundle comparison and Kubernetes node/pod/cgroup mapping tools
 
 Create a host allowlist:
 
@@ -115,6 +120,8 @@ The MVP tool surface is:
 
 - `ssh_list_hosts`: list configured host aliases and available bundles.
 - `ssh_run_bundle`: run one predefined read-only bundle on one configured host.
+- `ssh_compare_hosts`: run one bundle across selected hosts or labels and compare structured signals.
+- `ssh_k8s_map`: collect node-side pod/cgroup mapping evidence on a configured Kubernetes node.
 
 Start with `snapshot_60s`, interpret the output, then branch to one focused bundle such as `cpu_basic`, `memory_basic`, `io_basic`, `network_basic`, `container_cgroup_basic`, or `logs_oom_io_network`.
 
@@ -123,6 +130,13 @@ Each `ssh_run_bundle` response contains:
 - `diagnostic_report`: structured interpretation for agent routing.
 - `commands`: selected command output plus all primary/fallback `attempts`.
 - `timed_out`, `stdout_truncated`, `stderr_truncated`, `stdout_bytes`, `stderr_bytes`, and `max_output_bytes` for every command.
+
+Production controls are configured in `ssh-hosts.json`:
+
+- `sudo.enabled`, `sudo.command_ids`, and per-host `sudo` gate non-interactive `sudo -n` usage.
+- `audit.enabled` and `audit.path` write JSONL metadata for host, bundle, command IDs, hashes, fallback, sudo, timeout, and truncation state.
+- `redaction.enabled` controls response redaction. IPs are redacted by default; domains and paths can be enabled when needed.
+- host `labels` can be a list or key/value map such as `env=prod`, `role=api`, `cluster=prod-a`, and `az=az-a`.
 
 ## Recent Memory Additions
 
