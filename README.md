@@ -76,6 +76,12 @@ An API has intermittent timeouts. sar shows TCP retransmissions increasing, and 
 
 The repository includes an optional stdio MCP server that lets an agent run predefined read-only SSH diagnostic bundles on configured hosts. It does not expose arbitrary remote command execution and does not perform automatic fixes.
 
+The diagnostics path includes:
+
+- automatic fallback commands for common missing tools such as `mpstat`, `pidstat`, `iostat`, `sar`, `ss`, `nstat`, `ip`, and restricted `dmesg`
+- a structured `diagnostic_report` with summary, confidence, extracted signals, next read-only bundle suggestions, command health, and safety metadata
+- per-command timeout and output truncation fields so incomplete evidence is visible instead of hidden
+
 Create a host allowlist:
 
 ```bash
@@ -111,6 +117,12 @@ The MVP tool surface is:
 - `ssh_run_bundle`: run one predefined read-only bundle on one configured host.
 
 Start with `snapshot_60s`, interpret the output, then branch to one focused bundle such as `cpu_basic`, `memory_basic`, `io_basic`, `network_basic`, `container_cgroup_basic`, or `logs_oom_io_network`.
+
+Each `ssh_run_bundle` response contains:
+
+- `diagnostic_report`: structured interpretation for agent routing.
+- `commands`: selected command output plus all primary/fallback `attempts`.
+- `timed_out`, `stdout_truncated`, `stderr_truncated`, `stdout_bytes`, `stderr_bytes`, and `max_output_bytes` for every command.
 
 ## Recent Memory Additions
 

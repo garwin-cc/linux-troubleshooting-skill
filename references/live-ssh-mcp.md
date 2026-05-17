@@ -27,6 +27,14 @@ Expected tools:
 - `ssh_list_hosts`: list allowed host aliases and available bundles.
 - `ssh_run_bundle`: run one read-only bundle on one allowed host.
 
+Each `ssh_run_bundle` result should include:
+
+- `diagnostic_report.summary`: short machine-generated interpretation.
+- `diagnostic_report.signals`: extracted CPU, memory, IO, network, and collection signals.
+- `diagnostic_report.next_read_only_bundles`: suggested next bundles, not fixes.
+- `diagnostic_report.command_health`: failed, timed-out, truncated, and fallback-used command IDs.
+- `commands[].attempts`: primary and fallback command attempts for auditability.
+
 Expected bundles:
 
 - `snapshot_60s`: first-pass routing snapshot.
@@ -84,3 +92,4 @@ If a command is missing, do not block. Interpret the available outputs and use f
 
 - missing `mpstat`, `pidstat`, `iostat`, or `sar`: use `top`, `/proc/stat`, `/proc/meminfo`, `/proc/diskstats`, `ss`, `ip -s link`, and `dmesg`.
 - permission denied for `dmesg` or cgroup files: say which evidence is missing and ask for node-level or elevated read access if needed.
+- if `command_health.timed_out` or `command_health.truncated` is non-empty, mark the diagnosis as partial and prefer a narrower read-only bundle before concluding.
