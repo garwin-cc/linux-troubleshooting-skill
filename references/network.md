@@ -26,17 +26,19 @@ Do not jump straight to tuning. First prove the phase and segment.
 ## First Commands
 
 ```bash
-ip addr
-ip route
-ip route get <peer-ip>
-ss -s
-ss -antpi
-nstat -az
+(command -v ip >/dev/null && ip addr) || ifconfig -a 2>/dev/null || cat /proc/net/dev
+(command -v ip >/dev/null && ip route) || netstat -rn 2>/dev/null || route -n 2>/dev/null || cat /proc/net/route
+(command -v ip >/dev/null && ip route get <peer-ip>) || true
+(command -v ss >/dev/null && ss -s) || netstat -s 2>/dev/null || cat /proc/net/sockstat
+(command -v ss >/dev/null && ss -antpi) || netstat -antp 2>/dev/null || cat /proc/net/tcp
+(command -v nstat >/dev/null && nstat -az) || (cat /proc/net/snmp; cat /proc/net/netstat)
 cat /proc/net/snmp
-ip -s link
-sar -n DEV,TCP,ETCP 1 5
+(command -v ip >/dev/null && ip -s link) || cat /proc/net/dev
+(command -v sar >/dev/null && sar -n DEV,TCP,ETCP 1 5) || (cat /proc/net/dev; cat /proc/net/snmp; cat /proc/net/netstat)
 curl -v -w '%{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total}\n' <url>
 ```
+
+Fallback impact: `/proc/net/*` preserves TCP and interface counters, but socket ownership, queue detail, and policy route context may be weaker than `ss` and `ip`.
 
 Packet truth:
 

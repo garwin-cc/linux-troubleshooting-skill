@@ -79,6 +79,7 @@ The repository includes an optional stdio MCP server that lets an agent run pred
 The diagnostics path includes:
 
 - automatic fallback commands for common missing tools such as `mpstat`, `pidstat`, `iostat`, `sar`, `ss`, `nstat`, `ip`, and restricted `dmesg`
+- automatic `platform_probe` metadata for distro family, kernel, init system, cgroup mode, container markers, and available tools
 - a structured `diagnostic_report` with summary, confidence, extracted signals, next read-only bundle suggestions, command health, and safety metadata
 - per-command timeout and output truncation fields so incomplete evidence is visible instead of hidden
 - optional config-gated `sudo -n` for selected read-only command IDs only
@@ -128,6 +129,8 @@ Start with `snapshot_60s`, interpret the output, then branch to one focused bund
 Each `ssh_run_bundle` response contains:
 
 - `diagnostic_report`: structured interpretation for agent routing.
+- `diagnostic_report.platform_profile`: distro, version, kernel, init, cgroup mode, container status, available tools, and missing core tools.
+- `diagnostic_report.evidence_gaps` and `diagnostic_report.interpretation_notes`: fallback impact and platform-specific caveats.
 - `commands`: selected command output plus all primary/fallback `attempts`.
 - `timed_out`, `stdout_truncated`, `stderr_truncated`, `stdout_bytes`, `stderr_bytes`, and `max_output_bytes` for every command.
 

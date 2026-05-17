@@ -18,13 +18,13 @@ Do not equate "high used memory" with a memory leak. First classify where memory
 ## First Commands
 
 ```bash
-free -h
+free -h 2>/dev/null || cat /proc/meminfo
 vmstat 1 5
 cat /proc/meminfo
 ps aux --sort=-rss | head -20
-pidstat -r 1 5
-slabtop -o | head -30
-dmesg -T | grep -Ei 'oom|out of memory|killed process'
+(command -v pidstat >/dev/null && pidstat -r 1 5) || ps -eo pid,ppid,cmd,%mem,rss,vsz --sort=-rss | head -30
+(command -v slabtop >/dev/null && slabtop -o | head -30) || grep -E '^Slab|^SReclaimable|^SUnreclaim' /proc/meminfo
+(dmesg -T | grep -Ei 'oom|out of memory|killed process') 2>/dev/null || (journalctl -k --no-pager -n 200 | grep -Ei 'oom|out of memory|killed process') 2>/dev/null || true
 ```
 
 For a suspicious process:
@@ -37,6 +37,8 @@ smem -P '<service-name>' 2>/dev/null
 pmap -x <pid> | tail -20
 cat /proc/<pid>/limits
 ```
+
+Fallback impact: `ps` and `/proc/meminfo` are enough to route memory pressure, but PSS/smaps attribution may require `/proc/<pid>/smaps_rollup` or `smem`; kernel OOM evidence may be incomplete without `dmesg` or `journalctl`.
 
 For containers:
 

@@ -91,11 +91,35 @@
       "expected_output": "Routes to IO optimization/storage environment batch interference, checks pidstat/iotop/systemd-cgtop, explains cache eviction and batch interference, and suggests scheduling, cgroup IO limits, ionice, or workload isolation.",
       "files": []
     },
-    {
-      "id": 16,
-      "prompt": "During a load test, TPS will not increase. The client opens many short connections, server TIME_WAIT is high, and conntrack on the gateway grows quickly.",
-      "expected_output": "Routes across TCP queues/timeouts and NIC/conntrack/performance, checks client bottleneck, connection reuse, ephemeral ports, TIME_WAIT semantics, conntrack pressure, accept queues, and avoids tcp_tw_recycle.",
-      "files": []
-    }
-  ]
+        {
+            "id": 16,
+            "prompt": "During a load test, TPS will not increase. The client opens many short connections, server TIME_WAIT is high, and conntrack on the gateway grows quickly.",
+            "expected_output": "Routes across TCP queues/timeouts and NIC/conntrack/performance, checks client bottleneck, connection reuse, ephemeral ports, TIME_WAIT semantics, conntrack pressure, accept queues, and avoids tcp_tw_recycle.",
+            "files": []
+        },
+        {
+            "id": 17,
+            "prompt": "The host does not have mpstat, pidstat, iostat, or sar installed. How should the Linux performance snapshot still locate CPU, memory, IO, and network bottlenecks?",
+            "expected_output": "Uses platform/tool detection, falls back to /proc/stat, ps, /proc/diskstats, /proc/net/dev, /proc/net/snmp, /proc/net/netstat, and clearly states evidence gaps and lower confidence where sampled sysstat metrics are missing.",
+            "files": []
+        },
+        {
+            "id": 18,
+            "prompt": "On an Alpine or BusyBox container, many GNU procps and iproute2 options are missing. Give a safe troubleshooting path without assuming systemd or sysstat.",
+            "expected_output": "Detects minimal/containerized platform, avoids assuming systemd, uses /proc and BusyBox-compatible fallbacks, notes weaker ps/top/netstat output, and asks for node-level evidence when host IO/network/kernel logs are needed.",
+            "files": []
+        },
+        {
+            "id": 19,
+            "prompt": "dmesg is permission denied on a production host. How should the SSH diagnostics path handle kernel OOM and IO error evidence?",
+            "expected_output": "Tries configured read-only sudo only when allowed, falls back to journalctl -k or syslog files, records sudo/fallback/evidence gaps, and avoids broad privileged command execution or fixes.",
+            "files": []
+        },
+        {
+            "id": 20,
+            "prompt": "A Kubernetes pod has memory pressure. The node uses cgroup v2 on one cluster and cgroup v1 on another. How should the diagnosis adapt?",
+            "expected_output": "Probes cgroup mode, maps pod/node/pod UID/cgroup paths, uses memory.current/memory.events for v2 and memory.* files for v1, distinguishes process RSS from cgroup file cache, and compares node-level versus cgroup-limited pressure.",
+            "files": []
+        }
+    ]
 }

@@ -32,6 +32,9 @@ Expected tools:
 Each `ssh_run_bundle` result should include:
 
 - `diagnostic_report.summary`: short machine-generated interpretation.
+- `diagnostic_report.platform_profile`: distro, version, kernel, init, cgroup mode, container marker, available tools, and missing core tools.
+- `diagnostic_report.evidence_gaps`: missing-tool fallback impact.
+- `diagnostic_report.interpretation_notes`: platform-specific caveats for cgroup, container, Alpine/BusyBox, and log visibility.
 - `diagnostic_report.signals`: extracted CPU, memory, IO, network, and collection signals.
 - `diagnostic_report.next_read_only_bundles`: suggested next bundles, not fixes.
 - `diagnostic_report.command_health`: failed, timed-out, truncated, and fallback-used command IDs.
@@ -40,6 +43,7 @@ Each `ssh_run_bundle` result should include:
 
 Expected bundles:
 
+- `platform_probe`: distro, kernel, init/logging, cgroup mode, container markers, and tool inventory.
 - `snapshot_60s`: first-pass routing snapshot.
 - `cpu_basic`: CPU, scheduler, run queue, and context switch evidence.
 - `memory_basic`: memory pressure, RSS, slab, OOM, and PSI evidence.
@@ -102,6 +106,7 @@ CPU / Memory / IO / Network / Cgroup
 
 If a command is missing, do not block. Interpret the available outputs and use fallbacks:
 
-- missing `mpstat`, `pidstat`, `iostat`, or `sar`: use `top`, `/proc/stat`, `/proc/meminfo`, `/proc/diskstats`, `ss`, `ip -s link`, and `dmesg`.
-- permission denied for `dmesg` or cgroup files: say which evidence is missing and ask for node-level or elevated read access if needed.
+- missing `mpstat`, `pidstat`, `iostat`, or `sar`: use `top`, `ps`, `/proc/stat`, `/proc/meminfo`, `/proc/diskstats`, `/proc/net/*`, `ss`, `ip -s link`, and kernel logs.
+- permission denied for `dmesg` or cgroup files: try configured read-only sudo if allowed; otherwise say which evidence is missing and ask for node-level or elevated read access if needed.
 - if `command_health.timed_out` or `command_health.truncated` is non-empty, mark the diagnosis as partial and prefer a narrower read-only bundle before concluding.
+- if `evidence_gaps` is non-empty, explain how the fallback changes confidence before making a root-cause claim.

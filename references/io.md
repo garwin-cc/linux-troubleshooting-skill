@@ -29,15 +29,17 @@ top/vmstat -> iostat -> pidstat/iotop -> process files/syscalls -> block/filesys
 ```bash
 top
 vmstat 1 5
-iostat -d -x 1 5
-pidstat -d 1 5
-iotop -a -o
+(command -v iostat >/dev/null && iostat -d -x 1 5) || cat /proc/diskstats
+(command -v pidstat >/dev/null && pidstat -d 1 5) || for p in /proc/[0-9]*/io; do pid=${p#/proc/}; pid=${pid%/io}; comm=$(cat /proc/$pid/comm 2>/dev/null); awk -v pid="$pid" -v comm="$comm" '/read_bytes|write_bytes|cancelled_write_bytes/{printf "%s=%s ",$1,$2} END{print pid,comm}' "$p" 2>/dev/null; done | head -40
+command -v iotop >/dev/null && iotop -a -o
 df -h
 df -i
-findmnt -o TARGET,SOURCE,FSTYPE,OPTIONS
-lsblk -o NAME,MAJ:MIN,SIZE,TYPE,MOUNTPOINT,FSTYPE,MODEL
-dmesg -T | grep -iE 'error|fail|reset|timeout|nvme|scsi|blk|I/O|blocked'
+(command -v findmnt >/dev/null && findmnt -o TARGET,SOURCE,FSTYPE,OPTIONS) || cat /proc/mounts
+(command -v lsblk >/dev/null && lsblk -o NAME,MAJ:MIN,SIZE,TYPE,MOUNTPOINT,FSTYPE,MODEL) || cat /proc/partitions
+(dmesg -T | grep -iE 'error|fail|reset|timeout|nvme|scsi|blk|I/O|blocked') 2>/dev/null || (journalctl -k --no-pager -n 200 | grep -iE 'error|fail|reset|timeout|nvme|scsi|blk|I/O|blocked') 2>/dev/null || true
 ```
+
+Fallback impact: `/proc/diskstats` does not directly provide `await` or `%util`; use it to preserve direction, then lower confidence or sample counter deltas before blaming a disk/backend.
 
 Process and file attribution:
 

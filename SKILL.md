@@ -75,13 +75,13 @@ Start with a 60-second snapshot to route the incident:
 
 ```bash
 date; hostname; uptime
-dmesg -T | tail -80
+(dmesg -T | tail -80) 2>/dev/null || (journalctl -k --no-pager -n 80) 2>/dev/null || tail -80 /var/log/messages 2>/dev/null || tail -80 /var/log/kern.log 2>/dev/null || true
 vmstat 1 5
-mpstat -P ALL 1 3
-pidstat -u -d -r -w 1 5
-iostat -xz 1 5
-free -h
-sar -n DEV,TCP,ETCP 1 5
+(command -v mpstat >/dev/null && mpstat -P ALL 1 3) || grep '^cpu' /proc/stat | head -40
+(command -v pidstat >/dev/null && pidstat -u -d -r -w 1 5) || ps -eo pid,ppid,state,comm,pcpu,pmem,rss,vsz,wchan:24 --sort=-pcpu | head -40
+(command -v iostat >/dev/null && iostat -xz 1 5) || cat /proc/diskstats
+free -h 2>/dev/null || cat /proc/meminfo
+(command -v sar >/dev/null && sar -n DEV,TCP,ETCP 1 5) || (cat /proc/net/dev; cat /proc/net/snmp; cat /proc/net/netstat)
 top -bn1 | head -40
 ```
 
@@ -116,19 +116,21 @@ Use this command path for a live Linux host. Explain what each command proves wh
 
 ```bash
 date; hostname; uptime
-dmesg -T | tail -80
+(dmesg -T | tail -80) 2>/dev/null || (journalctl -k --no-pager -n 80) 2>/dev/null || tail -80 /var/log/messages 2>/dev/null || tail -80 /var/log/kern.log 2>/dev/null || true
 vmstat 1 5
-mpstat -P ALL 1 3
-pidstat -u -d -r -w 1 5
-iostat -xz 1 5
-free -h
-sar -n DEV,TCP,ETCP 1 5
+(command -v mpstat >/dev/null && mpstat -P ALL 1 3) || grep '^cpu' /proc/stat | head -40
+(command -v pidstat >/dev/null && pidstat -u -d -r -w 1 5) || ps -eo pid,ppid,state,comm,pcpu,pmem,rss,vsz,wchan:24 --sort=-pcpu | head -40
+(command -v iostat >/dev/null && iostat -xz 1 5) || cat /proc/diskstats
+free -h 2>/dev/null || cat /proc/meminfo
+(command -v sar >/dev/null && sar -n DEV,TCP,ETCP 1 5) || (cat /proc/net/dev; cat /proc/net/snmp; cat /proc/net/netstat)
 top -bn1 | head -40
 ```
 
 Fallbacks:
 
-- If `mpstat`, `pidstat`, `iostat`, or `sar` are missing, ask to install `sysstat` later; do not block. Use `top`, `/proc/stat`, `/proc/meminfo`, `/proc/diskstats`, `ss`, `ip -s link`, and `dmesg`.
+- If `mpstat`, `pidstat`, `iostat`, or `sar` are missing, do not block. Use `top`, `ps`, `/proc/stat`, `/proc/meminfo`, `/proc/diskstats`, `/proc/net/*`, `ss`, `ip -s link`, and kernel logs.
+- If `dmesg` is restricted, try `journalctl -k`; on non-systemd systems, check `/var/log/messages`, `/var/log/kern.log`, or `/var/log/syslog`.
+- If cgroup evidence is needed, identify v1/v2/hybrid first with `stat -fc %T /sys/fs/cgroup` and `mount | grep cgroup`.
 - If permissions are limited in a container, collect cgroup files and pod metrics, then inspect from the node if needed.
 
 ## Snapshot Interpretation

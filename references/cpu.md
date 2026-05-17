@@ -20,19 +20,21 @@ CPU incidents are not only "a process uses 100% CPU". Separate these classes fir
 uptime
 top -bn1 | head -40
 vmstat 1 5
-mpstat -P ALL 1 5
-pidstat -u 1 5
-pidstat -w 1 5
+(command -v mpstat >/dev/null && mpstat -P ALL 1 5) || grep '^cpu' /proc/stat | head -40
+(command -v pidstat >/dev/null && pidstat -u 1 5) || ps -eo pid,ppid,state,comm,pcpu,pmem,wchan:24 --sort=-pcpu | head -40
+(command -v pidstat >/dev/null && pidstat -w 1 5) || ps -eLo pid,tid,state,comm,pcpu,wchan:24 --sort=-pcpu | head -40
 ```
 
 If a process is suspicious:
 
 ```bash
 top -H -p <pid>
-pidstat -t -p <pid> 1 5
+(command -v pidstat >/dev/null && pidstat -t -p <pid> 1 5) || ps -T -p <pid> -o pid,tid,state,comm,pcpu,pmem,wchan:24
 cat /proc/<pid>/status
 ls /proc/<pid>/task | wc -l
 ```
+
+Fallback impact: `/proc/stat` and `ps` keep the investigation moving, but they are weaker than sampled `mpstat`/`pidstat` for percentages and context-switch rates. State the lower confidence when using them.
 
 ## Decision Table
 

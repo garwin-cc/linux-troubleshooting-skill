@@ -50,6 +50,18 @@ def cmd(
 
 
 BUNDLES: dict[str, list[CommandSpec]] = {
+    "platform_probe": [
+        cmd("os_release", "cat /etc/os-release 2>/dev/null || true"),
+        cmd("kernel_uname", "uname -a"),
+        cmd(
+            "tool_inventory",
+            "for t in systemctl journalctl dmesg ss ip nstat sar mpstat pidstat iostat vmstat top ps awk grep findmnt lsblk crictl ctr kubectl netstat ifconfig route; do command -v \"$t\" >/dev/null 2>&1 && echo \"$t=$(command -v \"$t\")\" || true; done",
+        ),
+        cmd("cgroup_fs", "stat -fc %T /sys/fs/cgroup 2>/dev/null || true"),
+        cmd("cgroup_mounts", "mount | grep cgroup || true", ["cat /proc/mounts | grep cgroup || true"]),
+        cmd("init_comm", "cat /proc/1/comm 2>/dev/null || true"),
+        cmd("container_markers", "test -f /.dockerenv && echo docker-container || true; grep -qa container=lxc /proc/1/environ 2>/dev/null && echo lxc-container || true"),
+    ],
     "snapshot_60s": [
         cmd("identity_uptime", "date; hostname; uptime"),
         cmd("kernel_recent", "dmesg -T | tail -80", ["journalctl -k --no-pager -n 80 2>/dev/null || true"], sudo_allowed=True),
@@ -366,6 +378,39 @@ def is_fallback_worthy(result: dict[str, Any]) -> bool:
     return result["exit_code"] in {126, 127} or any(pattern in text for pattern in missing_patterns)
 
 
+def primary_tool_for(command_id: str) -> str | None:
+    mapping = {
+        "mpstat": "mpstat",
+        "pidstat_all": "pidstat",
+        "pidstat_cpu": "pidstat",
+        "pidstat_switch": "pidstat",
+        "pidstat_io": "pidstat",
+        "iostat": "iostat",
+        "sar_network": "sar",
+        "ss_summary": "ss",
+        "ss_tcp": "ss",
+        "nstat": "nstat",
+        "ip_addr": "ip",
+        "ip_route": "ip",
+        "link_stats": "ip",
+        "findmnt": "findmnt",
+        "lsblk": "lsblk",
+        "kernel_recent": "dmesg",
+        "kernel_tail": "dmesg",
+        "kernel_filtered": "dmesg",
+        "journal_kernel": "journalctl",
+        "slabtop": "slabtop",
+    }
+    return mapping.get(command_id)
+
+
+def tool_missing(platform_profile: dict[str, Any] | None, command_id: str) -> bool:
+    if not platform_profile:
+        return False
+    tool = primary_tool_for(command_id)
+    return bool(tool and tool in set(platform_profile.get("missing_core_tools", [])))
+
+
 def normalize_process_output(value: Any) -> str:
     if isinstance(value, bytes):
         return value.decode("utf-8", "replace")
@@ -432,18 +477,57 @@ def run_command_spec(
     bundle: str,
     spec: CommandSpec,
     timeout: int,
+    platform_profile: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     attempts = []
     allowed_exit_codes = spec.get("allowed_exit_codes", [0])
+    selected = None
+    fallback_used = False
+    fallback_reason = None
+    sudo_used = False
+    can_sudo = sudo_allowed(config, entry, bundle, str(spec["id"]), spec)
+
+    if tool_missing(platform_profile, str(spec["id"])) and spec.get("fallbacks"):
+        fallback_reason = "primary tool missing in platform_profile"
+        fallback = run_remote(name, entry, str(spec["fallbacks"][0]), timeout)
+        fallback["attempt"] = "platform-fallback"
+        attempts.append(fallback)
+        selected = fallback
+        fallback_used = True
+        if can_sudo and is_fallback_worthy(fallback):
+            sudo_fallback = run_remote(name, entry, str(spec["fallbacks"][0]), timeout, use_sudo=True)
+            sudo_fallback["attempt"] = "sudo-platform-fallback"
+            attempts.append(sudo_fallback)
+            selected = sudo_fallback
+            sudo_used = True
+        return {
+            "id": spec["id"],
+            "command": selected["command"],
+            "primary_command": spec["command"],
+            "fallback_used": fallback_used,
+            "fallback_reason": fallback_reason,
+            "sudo_allowed": can_sudo,
+            "sudo_used": sudo_used,
+            "allowed_exit_codes": allowed_exit_codes,
+            "exit_ok": selected["exit_code"] in allowed_exit_codes,
+            "attempts": attempts,
+            "exit_code": selected["exit_code"],
+            "stdout": selected["stdout"],
+            "stderr": selected["stderr"],
+            "timed_out": selected["timed_out"],
+            "duration_ms": selected["duration_ms"],
+            "stdout_truncated": selected["stdout_truncated"],
+            "stderr_truncated": selected["stderr_truncated"],
+            "stdout_bytes": selected["stdout_bytes"],
+            "stderr_bytes": selected["stderr_bytes"],
+            "max_output_bytes": selected["max_output_bytes"],
+        }
+
     primary = run_remote(name, entry, str(spec["command"]), timeout)
     primary["attempt"] = "primary"
     attempts.append(primary)
 
     selected = primary
-    fallback_used = False
-    fallback_reason = None
-    sudo_used = False
-    can_sudo = sudo_allowed(config, entry, bundle, str(spec["id"]), spec)
     if is_fallback_worthy(primary):
         fallback_reason = "primary command timed out, failed, or was unavailable"
         if can_sudo and ("permission denied" in (primary.get("stderr", "") + primary.get("stdout", "")).lower() or primary["exit_code"] in {126, 127}):
@@ -695,6 +779,134 @@ def parse_softnet_drops(text: str) -> int:
     return drops
 
 
+def parse_os_release(text: str) -> dict[str, str]:
+    data = {}
+    for line in text.splitlines():
+        if "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        data[key] = value.strip().strip('"')
+    return data
+
+
+def distro_family(os_id: str, id_like: str) -> str:
+    haystack = " ".join([os_id, id_like]).lower()
+    if any(item in haystack for item in ["ubuntu", "debian"]):
+        return "debian"
+    if any(item in haystack for item in ["rhel", "fedora", "centos", "rocky", "alma", "amzn"]):
+        return "rhel"
+    if any(item in haystack for item in ["sles", "suse", "opensuse"]):
+        return "suse"
+    if "alpine" in haystack:
+        return "alpine"
+    return "unknown"
+
+
+def parse_available_tools(text: str) -> list[str]:
+    tools = []
+    for line in text.splitlines():
+        if "=" in line:
+            tools.append(line.split("=", 1)[0].strip())
+    return sorted(set(tool for tool in tools if tool))
+
+
+def parse_cgroup_mode(fs_type: str, mounts: str) -> str:
+    if "cgroup2fs" in fs_type:
+        return "v2"
+    has_v1 = "type cgroup " in mounts or " cgroup " in mounts
+    has_v2 = "type cgroup2 " in mounts or " cgroup2 " in mounts
+    if has_v1 and has_v2:
+        return "hybrid"
+    if has_v2:
+        return "v2"
+    if has_v1:
+        return "v1"
+    return "unknown"
+
+
+def build_platform_profile(commands: list[dict[str, Any]]) -> dict[str, Any]:
+    os_release = parse_os_release(output_for(commands, "os_release"))
+    tools = parse_available_tools(output_for(commands, "tool_inventory"))
+    core_tools = ["mpstat", "pidstat", "iostat", "sar", "ss", "ip", "nstat", "journalctl", "dmesg", "findmnt", "lsblk"]
+    init_comm = output_for(commands, "init_comm").strip()
+    init_system = "systemd" if init_comm == "systemd" or "systemctl" in tools else "unknown"
+    if init_comm in {"init", "busybox", "openrc-init"}:
+        init_system = init_comm
+    profile = {
+        "distro": os_release.get("ID", "unknown"),
+        "distro_family": distro_family(os_release.get("ID", ""), os_release.get("ID_LIKE", "")),
+        "version": os_release.get("VERSION_ID", ""),
+        "pretty_name": os_release.get("PRETTY_NAME", ""),
+        "kernel": output_for(commands, "kernel_uname").strip(),
+        "init": init_system,
+        "cgroup": parse_cgroup_mode(output_for(commands, "cgroup_fs"), output_for(commands, "cgroup_mounts")),
+        "containerized": bool(output_for(commands, "container_markers").strip()),
+        "available_tools": tools,
+        "missing_core_tools": [tool for tool in core_tools if tool not in tools],
+    }
+    return profile
+
+
+def evidence_gap(command_id: str, missing_tool: str, fallback: str, impact: str) -> dict[str, str]:
+    return {
+        "command_id": command_id,
+        "missing_tool": missing_tool,
+        "fallback_used": fallback,
+        "impact": impact,
+    }
+
+
+def build_evidence_gaps(commands: list[dict[str, Any]], platform_profile: dict[str, Any] | None) -> list[dict[str, str]]:
+    gaps = []
+    fallback_map = {
+        "mpstat": evidence_gap("mpstat", "mpstat", "/proc/stat", "Per-CPU percentage columns are weaker; compare /proc/stat deltas if precision is needed."),
+        "pidstat_all": evidence_gap("pidstat_all", "pidstat", "ps", "Per-interval CPU/IO/memory attribution is reduced to a point-in-time process view."),
+        "pidstat_cpu": evidence_gap("pidstat_cpu", "pidstat", "ps -eLo", "Thread CPU attribution is point-in-time rather than sampled over an interval."),
+        "pidstat_switch": evidence_gap("pidstat_switch", "pidstat", "ps -eLo", "Context switch rate is unavailable; lock/scheduler conclusions have lower confidence."),
+        "pidstat_io": evidence_gap("pidstat_io", "pidstat", "/proc/<pid>/io", "Per-process IO rate is unavailable without sampling counters over time."),
+        "iostat": evidence_gap("iostat", "iostat", "/proc/diskstats", "Diskstats lacks direct await/%util; storage latency conclusions have lower confidence."),
+        "sar_network": evidence_gap("sar_network", "sar", "/proc/net/dev,/proc/net/snmp,/proc/net/netstat", "Network rates are counters rather than sampled sar summaries."),
+        "ss_summary": evidence_gap("ss_summary", "ss", "netstat or /proc/net/sockstat", "Socket state detail may be reduced."),
+        "ss_tcp": evidence_gap("ss_tcp", "ss", "netstat or /proc/net/tcp", "TCP queue/process detail may be reduced."),
+        "nstat": evidence_gap("nstat", "nstat", "/proc/net/snmp,/proc/net/netstat", "TCP extended counter names vary and may need manual interpretation."),
+        "ip_addr": evidence_gap("ip_addr", "ip", "ifconfig or /proc/net/dev", "Interface metadata and modern link attributes may be missing."),
+        "ip_route": evidence_gap("ip_route", "ip", "netstat/route or /proc/net/route", "Policy routing and advanced route attributes may be missing."),
+        "link_stats": evidence_gap("link_stats", "ip", "/proc/net/dev", "Detailed link error/drop attribution may be reduced."),
+        "kernel_recent": evidence_gap("kernel_recent", "dmesg", "journalctl -k or log files", "Kernel log visibility depends on journald/syslog retention and permissions."),
+        "kernel_tail": evidence_gap("kernel_tail", "dmesg", "journalctl -k or log files", "Kernel log visibility depends on journald/syslog retention and permissions."),
+        "kernel_filtered": evidence_gap("kernel_filtered", "dmesg", "journalctl -k or log files", "Filtered kernel log visibility depends on journald/syslog retention and permissions."),
+        "journal_kernel": evidence_gap("journal_kernel", "journalctl", "dmesg or syslog files", "Kernel log retention and timestamps may differ from journald output."),
+        "slabtop": evidence_gap("slabtop", "slabtop", "/proc/meminfo", "Slab totals are available, but cache-family attribution is reduced."),
+        "findmnt": evidence_gap("findmnt", "findmnt", "/proc/mounts", "Mount source/options are available but less structured."),
+        "lsblk": evidence_gap("lsblk", "lsblk", "/proc/partitions", "Block device topology and filesystem metadata are reduced."),
+    }
+    for command in commands:
+        if command.get("fallback_used") and command["id"] in fallback_map:
+            gaps.append(fallback_map[command["id"]])
+    return gaps
+
+
+def build_interpretation_notes(platform_profile: dict[str, Any] | None, evidence_gaps: list[dict[str, str]]) -> list[str]:
+    profile = platform_profile or {}
+    notes = []
+    cgroup = profile.get("cgroup")
+    if cgroup == "v2":
+        notes.append("cgroup v2 detected; memory.current, memory.events, cpu.stat, and io.stat are the primary cgroup files.")
+    elif cgroup == "v1":
+        notes.append("cgroup v1 detected; inspect memory.*, cpuacct/cpu, and blkio controllers rather than v2 unified files.")
+    elif cgroup == "hybrid":
+        notes.append("Hybrid cgroup layout detected; verify whether the workload is charged in v1 or v2 before interpreting limits.")
+    if profile.get("containerized"):
+        notes.append("Containerized environment detected; host-level IO, network, and kernel log evidence may be incomplete from inside the container.")
+    if profile.get("distro_family") == "alpine":
+        notes.append("Alpine/BusyBox environment detected; ps/top/netstat options and output fields may differ from GNU/procps tools.")
+    if "journalctl" in profile.get("missing_core_tools", []) and "dmesg" in profile.get("missing_core_tools", []):
+        notes.append("Both journalctl and dmesg are missing or unavailable; kernel-log based OOM/IO/network evidence may be absent.")
+    if evidence_gaps:
+        notes.append("Fallback evidence was used; conclusions depending on missing tools should be treated with lower confidence.")
+    return notes
+
+
 def build_command_health(commands: list[dict[str, Any]]) -> dict[str, Any]:
     failed = [cmd["id"] for cmd in commands if not cmd.get("exit_ok", cmd["exit_code"] == 0)]
     timed_out = []
@@ -792,10 +1004,16 @@ def analyze_network(commands: list[dict[str, Any]], signals: list[dict[str, Any]
     return next_bundles
 
 
-def build_diagnostic_report(bundle: str, commands: list[dict[str, Any]]) -> dict[str, Any]:
+def build_diagnostic_report(
+    bundle: str,
+    commands: list[dict[str, Any]],
+    platform_profile: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     signals: list[dict[str, Any]] = []
     next_bundles: list[str] = []
     health = build_command_health(commands)
+    evidence_gaps = build_evidence_gaps(commands, platform_profile)
+    interpretation_notes = build_interpretation_notes(platform_profile, evidence_gaps)
 
     if health["timed_out"]:
         add_signal(signals, "warning", "collection", f"timed out: {', '.join(health['timed_out'])}", "Some evidence is incomplete because commands hit the per-command timeout.")
@@ -839,6 +1057,9 @@ def build_diagnostic_report(bundle: str, commands: list[dict[str, Any]]) -> dict
     return {
         "summary": summary,
         "confidence": confidence,
+        "platform_profile": platform_profile or {},
+        "evidence_gaps": evidence_gaps,
+        "interpretation_notes": interpretation_notes,
         "signals": signals,
         "next_read_only_bundles": ordered_next,
         "command_health": health,
@@ -860,6 +1081,7 @@ def summarize_for_compare(result: dict[str, Any]) -> dict[str, Any]:
     return {
         "host": result["host"],
         "labels": result.get("host_metadata", {}).get("labels", []),
+        "platform_profile": report.get("platform_profile", {}),
         "summary": report.get("summary"),
         "confidence": report.get("confidence"),
         "signal_categories": categories,
@@ -876,12 +1098,16 @@ def compare_hosts(
     labels: list[str] | None = None,
     timeout: int | None = None,
     max_hosts: int = 10,
+    include_platform_probe: bool = True,
 ) -> dict[str, Any]:
     selected_hosts = select_hosts(config, hosts=hosts, labels=labels)
     if len(selected_hosts) > max_hosts:
         selected_hosts = selected_hosts[:max_hosts]
     run_id = str(uuid.uuid4())
-    results = [run_bundle(config, host, bundle, timeout=timeout) for host in selected_hosts]
+    results = [
+        run_bundle(config, host, bundle, timeout=timeout, include_platform_probe=include_platform_probe)
+        for host in selected_hosts
+    ]
     summaries = [summarize_for_compare(result) for result in results]
     category_counts: dict[str, int] = {}
     unhealthy_hosts = []
@@ -1007,19 +1233,54 @@ def command_audit_summary(commands: list[dict[str, Any]]) -> list[dict[str, Any]
     return summaries
 
 
+def platform_audit_summary(profile: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "distro": profile.get("distro"),
+        "distro_family": profile.get("distro_family"),
+        "version": profile.get("version"),
+        "init": profile.get("init"),
+        "cgroup": profile.get("cgroup"),
+        "containerized": profile.get("containerized"),
+        "available_tools": profile.get("available_tools", []),
+        "missing_core_tools": profile.get("missing_core_tools", []),
+        "kernel_hash": hashlib.sha256(str(profile.get("kernel", "")).encode("utf-8")).hexdigest()
+        if profile.get("kernel")
+        else None,
+    }
+
+
 def apply_redaction(config: dict[str, Any], entry: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
     return Redactor(redaction_config(config, entry)).object(result)
 
 
-def run_bundle(config: dict[str, Any], host: str, bundle: str, timeout: int | None = None) -> dict[str, Any]:
+def run_bundle(
+    config: dict[str, Any],
+    host: str,
+    bundle: str,
+    timeout: int | None = None,
+    include_platform_probe: bool = True,
+) -> dict[str, Any]:
     if bundle not in BUNDLES:
         raise ValueError(f"unknown bundle: {bundle}")
     entry = host_entry(config, host)
     run_id = str(uuid.uuid4())
     per_command_timeout = int(timeout or entry.get("command_timeout", 20))
     started = time.time()
-    commands = [run_command_spec(config, host, entry, bundle, spec, per_command_timeout) for spec in BUNDLES[bundle]]
-    report = build_diagnostic_report(bundle, commands)
+    platform_commands: list[dict[str, Any]] = []
+    platform_profile: dict[str, Any] | None = None
+    if include_platform_probe and bundle != "platform_probe":
+        platform_commands = [
+            run_command_spec(config, host, entry, "platform_probe", spec, per_command_timeout)
+            for spec in BUNDLES["platform_probe"]
+        ]
+        platform_profile = build_platform_profile(platform_commands)
+    commands = [
+        run_command_spec(config, host, entry, bundle, spec, per_command_timeout, platform_profile=platform_profile)
+        for spec in BUNDLES[bundle]
+    ]
+    if bundle == "platform_probe":
+        platform_profile = build_platform_profile(commands)
+    report = build_diagnostic_report(bundle, commands, platform_profile=platform_profile)
     result = {
         "run_id": run_id,
         "host": host,
@@ -1032,6 +1293,10 @@ def run_bundle(config: dict[str, Any], host: str, bundle: str, timeout: int | No
         "started_at_unix": int(started),
         "duration_ms": int((time.time() - started) * 1000),
         "per_command_timeout_seconds": per_command_timeout,
+        "platform_probe": {
+            "included": bool(platform_commands) or bundle == "platform_probe",
+            "commands": platform_commands if bundle != "platform_probe" else commands,
+        },
         "diagnostic_report": report,
         "commands": commands,
     }
@@ -1046,6 +1311,7 @@ def run_bundle(config: dict[str, Any], host: str, bundle: str, timeout: int | No
             "bundle": bundle,
             "started_at_unix": result["started_at_unix"],
             "duration_ms": result["duration_ms"],
+            "platform_profile": platform_audit_summary(report.get("platform_profile", {})),
             "command_health": report["command_health"],
             "commands": command_audit_summary(commands),
         },
@@ -1066,7 +1332,7 @@ def tool_schema() -> list[dict[str, Any]]:
         },
         {
             "name": "ssh_run_bundle",
-            "description": "Run a predefined read-only Linux diagnostic bundle on an allowed SSH host.",
+            "description": "Run a predefined read-only Linux diagnostic bundle on an allowed SSH host. Includes platform_probe metadata by default.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -1077,6 +1343,10 @@ def tool_schema() -> list[dict[str, Any]]:
                         "minimum": 1,
                         "maximum": 120,
                         "description": "Per-command timeout in seconds.",
+                    },
+                    "include_platform_probe": {
+                        "type": "boolean",
+                        "description": "Whether to collect platform profile before the requested bundle. Defaults to true.",
                     },
                 },
                 "required": ["host", "bundle"],
@@ -1102,6 +1372,7 @@ def tool_schema() -> list[dict[str, Any]]:
                     },
                     "timeout": {"type": "integer", "minimum": 1, "maximum": 120},
                     "max_hosts": {"type": "integer", "minimum": 1, "maximum": 50},
+                    "include_platform_probe": {"type": "boolean"},
                 },
                 "required": ["bundle"],
                 "additionalProperties": False,
@@ -1157,6 +1428,7 @@ class McpServer:
                             host=str(args["host"]),
                             bundle=str(args["bundle"]),
                             timeout=args.get("timeout"),
+                            include_platform_probe=bool(args.get("include_platform_probe", True)),
                         )
                     )
                 elif name == "ssh_compare_hosts":
@@ -1168,6 +1440,7 @@ class McpServer:
                             labels=as_list(args.get("labels")) if args.get("labels") else None,
                             timeout=args.get("timeout"),
                             max_hosts=int(args.get("max_hosts", 10)),
+                            include_platform_probe=bool(args.get("include_platform_probe", True)),
                         )
                     )
                 elif name == "ssh_k8s_map":
