@@ -1,0 +1,14 @@
+.DS_Store
+*.log
+
+# Local eval outputs and temporary workspaces.
+*-workspace/
+iteration-*/
+outputs/
+
+# Editor and environment noise.
+.idea/
+.vscode/
+*.swp
+*.swo
+

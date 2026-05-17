@@ -1,0 +1,87 @@
+# linux-troubleshooting
+
+Diagnose Linux production problems end to end. Use this skill for service slowness, high load, CPU saturation, memory pressure, IO or disk latency, network latency, timeouts, OOM, iowait, packet loss, retransmission, container resource pressure, or Kubernetes incidents.
+
+## Structure
+
+- `SKILL.md` defines the trigger description, first-response shape, 60-second snapshot, and top-level routing.
+- `references/cpu.md` covers CPU saturation, scheduler pressure, softirq, context switching, steal time, and cgroup CPU throttling.
+- `references/memory.md` covers `MemAvailable`, Page Cache, RSS/PSS, `smem`, cgroup file cache, swap, slab, OOM, and container limits.
+- `references/io*.md` covers disk latency, filesystem, NFS, cloud volumes, cgroups, dirty writeback, and tracing.
+- `references/network*.md` covers TCP queues, retransmits, DNS, HTTP, TLS, routing, MTU, CNI, conntrack, NAT, and NIC pressure.
+- `evals/evals.json` contains regression prompts.
+
+## Install
+
+For Codex, copy this repository directory into your Codex skills directory:
+
+```bash
+cp -R linux-troubleshooting ~/.codex/skills/
+```
+
+Or install directly from GitHub with `npx`:
+
+```bash
+npx degit garwin-cc/linux-troubleshooting-skill ~/.codex/skills/linux-troubleshooting
+```
+
+If your Codex environment supports slash-command skill installation, you can also use:
+
+```text
+/skill install https://github.com/garwin-cc/linux-troubleshooting-skill
+```
+
+For Claude Code, copy it into your Claude skills directory:
+
+```bash
+cp -R linux-troubleshooting ~/.claude/skills/
+```
+
+Or install directly from GitHub with `npx`:
+
+```bash
+npx degit garwin-cc/linux-troubleshooting-skill ~/.claude/skills/linux-troubleshooting
+```
+
+Or use Claude Code's slash command:
+
+```text
+/skill install https://github.com/garwin-cc/linux-troubleshooting-skill
+```
+
+Then restart or reload the agent runtime so the skill metadata is discovered.
+
+## Example Prompts
+
+```text
+free shows high used memory and high buff/cache, and the service has a memory alert. How do I tell whether this is a memory leak?
+```
+
+```text
+An API has intermittent timeouts. sar shows TCP retransmissions increasing, and CPU softirq is high. Help me troubleshoot it.
+```
+
+## Design Principles
+
+- Start with read-only evidence.
+- Interpret pasted output before asking for more commands.
+- Route to the smallest reference that matches the evidence.
+- Distinguish facts from inference.
+- Treat restarts, `sysctl -w`, cache drops, firewall changes, qdisc changes, conntrack deletion, disk scheduler changes, and kernel tuning as proposed changes that need evidence and rollback.
+
+## Recent Memory Additions
+
+The memory reference includes extra guardrails for common false positives:
+
+- Use PSS, `smem`, and `smaps_rollup` when RSS may double-count shared pages.
+- Separate process anonymous memory from file-backed cache.
+- Inspect cgroup `memory.stat` `anon` versus `file` when container memory alerts fire while host memory is healthy.
+- Check Page Cache reclaim evidence such as `sar -B`, `/proc/vmstat`, inode steal counters, drop-cache counters, and memory PSI before tuning.
+
+## Evals
+
+Regression prompts live in `evals/evals.json`. A good eval run should compare answers with this skill against a baseline without the skill and review both keyword coverage and qualitative troubleshooting quality.
+
+## License
+
+MIT. See `LICENSE`.

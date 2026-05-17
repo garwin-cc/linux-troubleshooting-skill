@@ -1,0 +1,101 @@
+{
+  "skill_name": "linux-troubleshooting",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "A production service suddenly became slow. The load average is three times the CPU core count, but CPU utilization does not look high. Give me a Linux troubleshooting path.",
+      "expected_output": "Starts with a 60-second snapshot, distinguishes runnable load from D-state/iowait, asks for vmstat/top/iostat evidence, and branches CPU vs IO without assuming CPU saturation.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "free shows high used memory and high buff/cache, and the service has a memory alert. How do I tell whether this is a memory leak?",
+      "expected_output": "Uses MemAvailable, vmstat si/so, meminfo, top RSS, OOM logs, explains page cache vs RSS leak, and avoids recommending drop_caches as a fix.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "An API has intermittent timeouts. sar shows TCP retransmissions increasing, and CPU softirq is high. Help me troubleshoot it.",
+      "expected_output": "Routes to the network branch, checks packet rate, softirq/NIC drops, retransmission evidence, curl phase timing, and proposes targeted tcpdump with privacy caution.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "A Java service in Kubernetes has P99 latency spikes. Container CPU utilization is not high, but the pod has a CPU limit. How should I locate the problem?",
+      "expected_output": "Checks cgroup CPU throttling, nr_throttled ratio, pod limits/requests, Java profiling/GC as secondary branches, and explains why low apparent CPU can still throttle.",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "Clients occasionally get TCP connect timeouts to a service. On the server, ss -lnt shows the LISTEN socket Recv-Q close to Send-Q during the incident. What should I check next?",
+      "expected_output": "Routes to TCP queues/timeouts, explains LISTEN Recv-Q/Send-Q semantics, checks accept queue overflow, ListenDrops/ListenOverflows, application accept loop, worker saturation, and avoids only raising somaxconn.",
+      "files": []
+    },
+    {
+      "id": 6,
+      "prompt": "A large HTTPS response sometimes hangs in Kubernetes. Small requests work. The cluster uses an overlay CNI, and the issue is worse cross-node. Give me a troubleshooting plan.",
+      "expected_output": "Routes to Kubernetes networking and routing/MTU references, compares pod IP vs service IP vs DNS, same-node vs cross-node, checks overlay MTU, tracepath, ping -M do, MSS clamping, CNI logs, and packet captures.",
+      "files": []
+    },
+    {
+      "id": 7,
+      "prompt": "DNS lookup latency is high inside pods, but direct IP access is fast. /etc/resolv.conf has ndots:5. How should I diagnose it?",
+      "expected_output": "Routes to DNS/CoreDNS branch, explains search-domain expansion and ndots, uses dig/getent/tcpdump port 53, checks CoreDNS logs/CPU throttling/upstream resolver, and separates DNS latency from TCP/application latency.",
+      "files": []
+    },
+    {
+      "id": 8,
+      "prompt": "Nginx logs many 499 responses and upstream_response_time is often higher than the client timeout. Is this a network issue?",
+      "expected_output": "Routes to HTTP/Nginx/TLS branch, explains 499 as client closed before response, compares request_time/upstream timings, checks FIN/RST direction with packet capture, and discusses timeout alignment and upstream latency.",
+      "files": []
+    },
+    {
+      "id": 9,
+      "prompt": "TLS handshakes fail only for some clients after a certificate change. curl sometimes reports an SSL alert. What evidence should I collect?",
+      "expected_output": "Routes to TLS branch, uses openssl s_client with SNI and protocol versions, inspects certificate chain/hostname/trust store/TLS alerts, uses tshark tls filters, and avoids requesting production private keys.",
+      "files": []
+    },
+    {
+      "id": 10,
+      "prompt": "A NAT gateway node has high CPU softirq, nf_conntrack_count near nf_conntrack_max, and intermittent outbound failures. What is the likely path?",
+      "expected_output": "Routes to NIC/conntrack/performance, checks conntrack count/max and conntrack -S, short-connection storms, NAT table counters, packet rate, softnet/NIC drops, and recommends connection reuse or NAT scaling before blind tuning.",
+      "files": []
+    },
+    {
+      "id": 11,
+      "prompt": "File transfer across regions is much slower than expected. Bandwidth is available, latency is high, and retransmissions are low. How do I reason about it?",
+      "expected_output": "Routes to network performance long-fat path, considers bandwidth-delay product, TCP window scaling, socket buffers, ss -ti, application read/write behavior, and cautions to tune buffers only after BDP evidence.",
+      "files": []
+    },
+    {
+      "id": 12,
+      "prompt": "A cloud VM shows iostat await spikes on dm-0, but the underlying provider dashboard sometimes shows volume throughput throttling. How should I avoid blaming the wrong layer?",
+      "expected_output": "Routes to IO storage environments, maps dm-* with lsblk/findmnt/dmsetup, compares guest iostat with provider IOPS/throughput/credits/instance bandwidth, and treats logical %util as a signal rather than proof.",
+      "files": []
+    },
+    {
+      "id": 13,
+      "prompt": "A service using NFS has high request latency but local disk metrics are quiet. The issue appears during directory scans. What should I inspect?",
+      "expected_output": "Routes to IO storage environments NFS branch, checks findmnt/nfsstat/nfsiostat/mount options/network metrics, explains metadata-heavy NFS latency, and avoids local SMART checks as the primary path.",
+      "files": []
+    },
+    {
+      "id": 14,
+      "prompt": "iostat proves high write await, but pidstat only shows jbd2 and kworker as active. I need deeper attribution without running a huge trace first.",
+      "expected_output": "Routes to IO advanced tools, treats jbd2/kworker as symptoms, starts with /proc/<pid>/io/lsof/focused strace, then perf trace or BCC tools such as biosnoop/biolatency before full blktrace.",
+      "files": []
+    },
+    {
+      "id": 15,
+      "prompt": "A backup job runs every hour and user-facing latency spikes at the same time. Disk is not always at 100% util, but Page Cache drops and reads get slower.",
+      "expected_output": "Routes to IO optimization/storage environment batch interference, checks pidstat/iotop/systemd-cgtop, explains cache eviction and batch interference, and suggests scheduling, cgroup IO limits, ionice, or workload isolation.",
+      "files": []
+    },
+    {
+      "id": 16,
+      "prompt": "During a load test, TPS will not increase. The client opens many short connections, server TIME_WAIT is high, and conntrack on the gateway grows quickly.",
+      "expected_output": "Routes across TCP queues/timeouts and NIC/conntrack/performance, checks client bottleneck, connection reuse, ephemeral ports, TIME_WAIT semantics, conntrack pressure, accept queues, and avoids tcp_tw_recycle.",
+      "files": []
+    }
+  ]
+}
