@@ -1,6 +1,6 @@
 # linux-troubleshooting
 
-Diagnose Linux production problems end to end. Use this skill for service slowness, high load, CPU saturation, memory pressure, IO or disk latency, network latency, timeouts, OOM, iowait, packet loss, retransmission, container resource pressure, or Kubernetes incidents.
+Diagnose Linux production problems end to end. Use this skill for service slowness, high load, CPU saturation, memory pressure, IO or disk latency, network latency, timeouts, OOM, iowait, packet loss, retransmission, container resource pressure, Kubernetes incidents, disk full, inode exhaustion, zombie processes, log file growth, or "server not responding" incidents.
 
 ## Structure
 
@@ -141,9 +141,28 @@ Production controls are configured in `ssh-hosts.json`:
 - `redaction.enabled` controls response redaction. IPs are redacted by default; domains and paths can be enabled when needed.
 - host `labels` can be a list or key/value map such as `env=prod`, `role=api`, `cluster=prod-a`, and `az=az-a`.
 
-## Recent Memory Additions
+## Recent Improvements
 
-The memory reference includes extra guardrails for common false positives:
+**Routing and coverage:**
+
+- Snapshot Interpretation table now includes a `%st` steal time row so hypervisor CPU contention is caught in the first routing pass.
+- Cross-Domain Traps now covers the cgroup OOM vs host OOM false positive: a process killed by the OOM killer while `free` shows plenty of host memory is usually a cgroup memory limit, not host-level pressure. Check `dmesg` for `oom_kill_process` and the cgroup path in the log line.
+- Skill description expanded to trigger on disk full, inode exhaustion, zombie processes, log file growth, and "server not responding" incidents.
+
+**Safety notes:**
+
+- `iotop` uses kernel taskstats and adds per-process accounting overhead on busy systems; prefer `pidstat -d` for a lower-overhead first pass.
+
+**Content cleanup:**
+
+- First Response Shape no longer duplicates the 60-second snapshot command block; it now references the single canonical block in the 60-Second Snapshot section.
+- Removed orphaned `cat /proc/net/snmp` line from `references/network.md` first commands (it was already covered by the `nstat` fallback).
+
+**Evals:**
+
+- Added evals 21 and 22 covering the SSH MCP snapshot workflow (`snapshot_60s` as the mandatory first step) and correct handling of `sudo_used` and `evidence_gaps` fields in `ssh_run_bundle` responses.
+
+**Memory reference guardrails:**
 
 - Use PSS, `smem`, and `smaps_rollup` when RSS may double-count shared pages.
 - Separate process anonymous memory from file-backed cache.
