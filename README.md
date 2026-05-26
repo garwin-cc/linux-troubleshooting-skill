@@ -64,6 +64,30 @@ free shows high used memory and high buff/cache, and the service has a memory al
 An API has intermittent timeouts. sar shows TCP retransmissions increasing, and CPU softirq is high. Help me troubleshoot it.
 ```
 
+```text
+A production service suddenly became slow. The load average is three times the CPU core count, but CPU utilization does not look high. Give me a Linux troubleshooting path.
+```
+
+```text
+A Java service in Kubernetes has P99 latency spikes. Container CPU utilization is not high, but the pod has a CPU limit. How should I locate the problem?
+```
+
+```text
+A large HTTPS response sometimes hangs in Kubernetes. Small requests work. The cluster uses an overlay CNI, and the issue is worse cross-node. Give me a troubleshooting plan.
+```
+
+```text
+DNS lookup latency is high inside pods, but direct IP access is fast. /etc/resolv.conf has ndots:5. How should I diagnose it?
+```
+
+```text
+A cloud VM shows iostat await spikes on dm-0, but the underlying provider dashboard sometimes shows volume throughput throttling. How should I avoid blaming the wrong layer?
+```
+
+```text
+The host does not have mpstat, pidstat, iostat, or sar installed. How should the Linux performance snapshot still locate CPU, memory, IO, and network bottlenecks?
+```
+
 ## Design Principles
 
 - Start with read-only evidence.
