@@ -1,6 +1,6 @@
 ---
 name: linux-troubleshooting
-description: Diagnose Linux production problems end to end. Use this skill whenever the user asks how to locate Linux issues, service slowness, high load, CPU saturation, memory pressure, IO or disk latency, network latency, timeout, OOM, iowait, packet loss, retransmission, container or Kubernetes resource pressure, or wants a structured troubleshooting runbook. Start with a 60-second system snapshot, then branch into CPU, memory, IO, or network evidence instead of guessing.
+description: Diagnose Linux production problems end to end. Use this skill whenever the user asks how to locate Linux issues, service slowness, high load, CPU saturation, memory pressure, IO or disk latency, network latency, timeout, OOM, iowait, packet loss, retransmission, container or Kubernetes resource pressure, disk full, inode exhaustion, zombie process, suspicious high process count, log file growth, or server not responding, or wants a structured troubleshooting runbook. Start with a 60-second system snapshot, then branch into CPU, memory, IO, or network evidence instead of guessing.
 ---
 
 # Linux Troubleshooting
@@ -71,19 +71,7 @@ If the MCP tools are not available, provide the same commands for the user to ru
 If the user gives only symptoms, answer with:
 
 ```markdown
-Start with a 60-second snapshot to route the incident:
-
-```bash
-date; hostname; uptime
-(dmesg -T | tail -80) 2>/dev/null || (journalctl -k --no-pager -n 80) 2>/dev/null || tail -80 /var/log/messages 2>/dev/null || tail -80 /var/log/kern.log 2>/dev/null || true
-vmstat 1 5
-(command -v mpstat >/dev/null && mpstat -P ALL 1 3) || grep '^cpu' /proc/stat | head -40
-(command -v pidstat >/dev/null && pidstat -u -d -r -w 1 5) || ps -eo pid,ppid,state,comm,pcpu,pmem,rss,vsz,wchan:24 --sort=-pcpu | head -40
-(command -v iostat >/dev/null && iostat -xz 1 5) || cat /proc/diskstats
-free -h 2>/dev/null || cat /proc/meminfo
-(command -v sar >/dev/null && sar -n DEV,TCP,ETCP 1 5) || (cat /proc/net/dev; cat /proc/net/snmp; cat /proc/net/netstat)
-top -bn1 | head -40
-```
+Start with a 60-second snapshot to route the incident (see 60-Second Snapshot commands below).
 
 Routing rules:
 - ...
@@ -149,6 +137,7 @@ Use this table to route the investigation.
 | `sar -n TCP,ETCP` retransmits or resets are high | TCP/network issue or downstream pressure | `references/network.md` |
 | `sar -n DEV` packet rate high and `%si` high | NIC/softirq path | `references/network.md` |
 | `dmesg` has OOM, blocked tasks, I/O errors, reset, or timeout | Jump to the matching error branch | Memory or IO |
+| `%st` persistent or spiky | Hypervisor is not scheduling this vCPU; guest is losing time | `references/cpu.md` steal branch; check cloud/VM metrics |
 | Container is slow while host looks okay | Check cgroup CPU, memory, and IO throttling | CPU, memory, or IO container branches |
 
 ## Domain Branches
@@ -264,6 +253,7 @@ Branch:
 - Network latency can be server CPU queueing, softirq delay, DNS, retransmission, or application backlog.
 - Disk latency in a VM or container can be backend throttling. Guest metrics are only one layer.
 - Low container CPU percentage does not rule out cgroup CPU quota throttling.
+- A process OOM-killed while `free` shows plenty of host memory is usually a cgroup memory limit, not host OOM. Check `dmesg` for `oom_kill_process` and the cgroup path in the log line before assuming host-level pressure.
 - Kernel threads such as `jbd2`, `kworker`, or `kswapd` are often symptoms; find the upstream workload.
 
 ## Final Report Template
@@ -302,3 +292,4 @@ Use this when the user wants a diagnosis summary.
 - Avoid `tcp_tw_recycle`; it is unsafe and removed from modern kernels.
 - Avoid blindly raising buffers, queues, backlog, or conntrack limits before proving saturation.
 - Capture evidence before restarting a process when OOM, deadlock, or intermittent latency is under investigation.
+- `iotop` uses kernel taskstats and adds per-process accounting overhead on busy systems; prefer `pidstat -d` for lower-overhead first pass.

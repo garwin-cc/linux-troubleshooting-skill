@@ -32,7 +32,6 @@ Do not jump straight to tuning. First prove the phase and segment.
 (command -v ss >/dev/null && ss -s) || netstat -s 2>/dev/null || cat /proc/net/sockstat
 (command -v ss >/dev/null && ss -antpi) || netstat -antp 2>/dev/null || cat /proc/net/tcp
 (command -v nstat >/dev/null && nstat -az) || (cat /proc/net/snmp; cat /proc/net/netstat)
-cat /proc/net/snmp
 (command -v ip >/dev/null && ip -s link) || cat /proc/net/dev
 (command -v sar >/dev/null && sar -n DEV,TCP,ETCP 1 5) || (cat /proc/net/dev; cat /proc/net/snmp; cat /proc/net/netstat)
 curl -v -w '%{time_namelookup} %{time_connect} %{time_appconnect} %{time_starttransfer} %{time_total}\n' <url>

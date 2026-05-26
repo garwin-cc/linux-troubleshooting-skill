@@ -120,6 +120,18 @@
             "prompt": "A Kubernetes pod has memory pressure. The node uses cgroup v2 on one cluster and cgroup v1 on another. How should the diagnosis adapt?",
             "expected_output": "Probes cgroup mode, maps pod/node/pod UID/cgroup paths, uses memory.current/memory.events for v2 and memory.* files for v1, distinguishes process RSS from cgroup file cache, and compares node-level versus cgroup-limited pressure.",
             "files": []
+        },
+        {
+            "id": 21,
+            "prompt": "SSH MCP tools are available. The user asks to investigate live host prod-api-01. What is the correct first step?",
+            "expected_output": "Identifies the host alias, tells the user the first step is a read-only snapshot, calls ssh_run_bundle with snapshot_60s on prod-api-01, and does not run any fix or privileged command before interpreting the output.",
+            "files": []
+        },
+        {
+            "id": 22,
+            "prompt": "An ssh_run_bundle result has sudo_used: true for the dmesg command and evidence_gaps listing missing iostat. How should the diagnosis handle these fields?",
+            "expected_output": "Mentions sudo_used in the report as privileged read-only evidence collection without expanding it into arbitrary command execution, and explains how the missing iostat fallback reduces confidence in IO metrics before making any root-cause claim.",
+            "files": []
         }
     ]
 }
